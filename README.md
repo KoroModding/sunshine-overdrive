@@ -156,8 +156,7 @@ factor `M = 2 × literal 0x804167B8` (1 at 30 FPS, 4 at 120) at run time.
 | `goop.py` (+ `goop/goop.c`) | **smooth goop edges**: see below |
 
 Details for each fix (addresses, original instruction, proof, measurements) are
-in the header of its module and in [`docs/00-journal.md`](docs/00-journal.md)
-(in French).
+in the header of its module (in French) and in [`docs/00-journal.md`](docs/00-journal.md).
 
 ### Smooth goop edges
 
@@ -287,14 +286,14 @@ published as a Release. Locally:
 ISCC.exe /DAppVer=1.4.0 installer\SunshineOverdrive.iss     # -> dist\
 ```
 
-Detailed documentation (in French):
+Detailed documentation:
 
 | File | Contents |
 |---|---|
 | [`docs/00-journal.md`](docs/00-journal.md) | project log, session by session, with every measurement |
-| [`docs/01-mecanismes.md`](docs/01-mecanismes.md) | the engine's timing mechanisms, demonstrated in the disassembly |
-| [`docs/02-adresses.md`](docs/02-adresses.md) | address register and how well each one is verified |
-| [`docs/03-outillage.md`](docs/03-outillage.md) | the tools |
+| [`docs/01-mechanisms.md`](docs/01-mechanisms.md) | the engine's timing mechanisms, demonstrated in the disassembly |
+| [`docs/02-addresses.md`](docs/02-addresses.md) | address register and how well each one is verified |
+| [`docs/03-tooling.md`](docs/03-tooling.md) | the tools |
 | [`docs/04-tests.md`](docs/04-tests.md) | the test suite and its results |
 | [`docs/05-regions.md`](docs/05-regions.md) | why GMSE01 only |
 | [`docs/adr/`](docs/adr/) | architecture decisions |

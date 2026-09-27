@@ -1,96 +1,96 @@
-# ADR 0002 — Instrumenter par accès mémoire externe, pas par le débogueur
+# ADR 0002 — Instrument through external memory access, not through the debugger
 
-- **Date** : 2026-09-15
-- **Statut** : accepté
+- **Date**: 2026-09-15
+- **Status**: accepted
 
-## Contexte
+## Context
 
-Le plan de départ décrit la phase 0 en termes de débogueur Dolphin : activer le mode
-*Debugging*, charger `us.map`, poser un point d'arrêt mémoire en écriture sur
-`TMarDirector + 0x54` ou sur le `mVel.y` de Mario, et compter les
-déclenchements.
+The initial plan describes phase 0 in terms of the Dolphin debugger: enable
+*Debugging* mode, load `us.map`, set a memory breakpoint on write on
+`TMarDirector + 0x54` or on Mario's `mVel.y`, and count the
+hits.
 
-Cette méthode suppose un opérateur humain devant l'interface pour chaque
-mesure. Or les mesures utiles sont nombreuses et répétitives : trois paliers ×
-plusieurs grandeurs, plus les comparaisons avant/après correctif. Chaque
-aller-retour avec un opérateur coûte du temps et introduit des variations qui
-polluent la comparaison.
+This method assumes a human operator in front of the UI for each
+measurement. Yet the useful measurements are numerous and repetitive: three tiers ×
+several quantities, plus the before/after-fix comparisons. Each
+round trip with an operator costs time and introduces variations that
+pollute the comparison.
 
-## Décision
+## Decision
 
-Instrumenter depuis un processus tiers, en lisant et écrivant directement la
-MEM1 émulée par `ReadProcessMemory` / `WriteProcessMemory`.
+Instrument from a third-party process, reading and writing the emulated
+MEM1 directly through `ReadProcessMemory` / `WriteProcessMemory`.
 
-## Raisons
+## Reasons
 
-1. **Automatisable de bout en bout.** Une campagne aux trois paliers avec
-   restauration s'exécute en une commande.
-2. **Comparaisons valides.** Le même script, la même durée d'échantillonnage et
-   le même état de départ pour chaque palier.
-3. **Rapide.** ~405 000 lectures par seconde, soit une période de 2,5 µs. Un
-   sous-pas dure 2,1 ms : la marge est de trois ordres de grandeur, aucune
-   transition n'est manquée.
-4. **Auto-validante.** Voir ci-dessous — c'est l'argument décisif.
-5. **Sans interaction avec l'émulateur.** Ni point d'arrêt, ni pause, ni
-   ralentissement : le jeu tourne normalement pendant la mesure.
+1. **Automatable end to end.** A campaign across the three tiers with
+   restoration runs in a single command.
+2. **Valid comparisons.** The same script, the same sampling duration and
+   the same starting state for each tier.
+3. **Fast.** ~405 000 reads per second, i.e. a period of 2.5 µs. A
+   substep lasts 2.1 ms: the margin is three orders of magnitude, no
+   transition is missed.
+4. **Self-validating.** See below — this is the decisive argument.
+5. **No interaction with the emulator.** No breakpoint, no pause, no
+   slowdown: the game runs normally during the measurement.
 
-## L'auto-validation remplace la certitude du point d'arrêt
+## Self-validation replaces the certainty of the breakpoint
 
-Un point d'arrêt ne rate rien par construction ; un sondage, si. C'est
-l'objection sérieuse à cette approche, et elle se traite par la structure même
-de la grandeur observée.
+A breakpoint misses nothing by construction; polling can. This is
+the serious objection to this approach, and it is addressed through the very structure
+of the observed quantity.
 
-L'accumulateur ne varie que de deux façons : `+vsyncRate` au début d'une image,
-`-5` à chaque sous-pas. Si le sondage rate une transition, l'écart observé
-n'est plus 5 mais 10 ou 15. **Le script vérifie donc que tout décrément vaut
-exactement 5 et que tout incrément vaut exactement la même valeur** ; si une
-seule transition anormale apparaît, la mesure est rejetée au lieu d'être
-rapportée.
+The accumulator changes in only two ways: `+vsyncRate` at the start of a frame,
+`-5` at each substep. If the polling misses a transition, the observed difference
+is no longer 5 but 10 or 15. **The script therefore checks that every decrement is
+exactly 5 and that every increment is exactly the same value**; if a
+single abnormal transition appears, the measurement is rejected instead of being
+reported.
 
-En pratique, sur 750 transitions relevées à 30 FPS, les 600 décréments valaient
-tous 5 et les 150 incréments tous 20.
+In practice, out of 750 transitions recorded at 30 FPS, the 600 decrements were
+all 5 and the 150 increments all 20.
 
-## Conséquence majeure : données oui, code non
+## Major consequence: data yes, code no
 
-La mesure a mis au jour une limite qu'il faut connaître avant d'écrire le
-moindre correctif.
+The measurement uncovered a limitation that must be known before writing
+the slightest fix.
 
-Dolphin compile le code PowerPC en code natif et met les blocs en cache. Une
-écriture externe dans une **instruction** n'invalide pas le cache :
+Dolphin compiles PowerPC code into native code and caches the blocks. An
+external write to an **instruction** does not invalidate the cache:
 
-> Écrire `nop` en `0x802FCB24` modifie bien la MEM1 (relecture confirmée) mais
-> **ne change rien au comportement** — le jeu continue de présenter 30 images
-> par seconde.
+> Writing `nop` at `0x802FCB24` does modify MEM1 (confirmed by re-reading) but
+> **changes nothing in the behaviour** — the game keeps presenting 30 frames
+> per second.
 
-Une écriture dans une **donnée** prend effet immédiatement, puisque le jeu la
-relit à chaque exécution.
+A write to a **data** value takes effect immediately, since the game
+re-reads it on every execution.
 
-Cela **écarte** le correctif de `gamemasterplc` (`042FCB24 60000000`) pour tout
-usage à chaud, et impose de passer par `mRetraceCount`, qui est une donnée en
-`TDisplay + 0x4C` et produit exactement le même effet (démontré au § 3.1 de
-[`../01-mecanismes.md`](../01-mecanismes.md), puis vérifié expérimentalement).
+This **rules out** the `gamemasterplc` fix (`042FCB24 60000000`) for any
+live use, and requires going through `mRetraceCount`, which is a data value at
+`TDisplay + 0x4C` and produces exactly the same effect (demonstrated in § 3.1 of
+[`../01-mechanisms.md`](../01-mechanisms.md), then verified experimentally).
 
-C'est aussi la voie que prend BetterSunshineEngine — qui s'exécute, lui, à
-l'intérieur du jeu et n'a donc pas ce problème. La convergence est rassurante.
+This is also the route BetterSunshineEngine takes — which itself runs
+inside the game and therefore does not have this problem. The convergence is reassuring.
 
-## Portée et limites
+## Scope and limitations
 
-- **Les correctifs appliqués ainsi ne survivent pas** à un redémarrage du jeu,
-  et ne constituent pas un mod distribuable. L'objet est la mesure, pas la
-  livraison. Un mod réel passera par Kuribo / BetterSunshineEngine.
-- **Les adresses d'objets sont dynamiques.** `TDisplay`, `TMarDirector` et
-  Mario sont sur le tas ; leurs adresses changent d'une session à l'autre. Tout
-  est donc résolu à l'exécution depuis les globales `gpApplication`,
-  `gpMarDirector` et `gpMarioOriginal`, jamais codé en dur.
-- **Les réglages hôtes de Dolphin restent hors de portée.** Le VBI Frequency
-  Override, nécessaire au palier 120 FPS, n'est pas dans la MEM1. Il faudra une
-  autre voie.
-- **Windows uniquement.** `tools/dolphin.py` s'appuie sur l'API Win32.
+- **Fixes applied this way do not survive** a restart of the game,
+  and do not constitute a distributable mod. The purpose is measurement, not
+  delivery. A real mod will go through Kuribo / BetterSunshineEngine.
+- **Object addresses are dynamic.** `TDisplay`, `TMarDirector` and
+  Mario are on the heap; their addresses change from one session to the next. Everything
+  is therefore resolved at runtime from the globals `gpApplication`,
+  `gpMarDirector` and `gpMarioOriginal`, never hard-coded.
+- **Dolphin's host settings remain out of reach.** The VBI Frequency
+  Override, needed for the 120 FPS tier, is not in MEM1. Another
+  route will be needed.
+- **Windows only.** `tools/dolphin.py` relies on the Win32 API.
 
-## Alternative écartée
+## Rejected alternative
 
-**Injecter du code PowerPC** dans la zone Gecko libre (`0x80001800`–`0x80003000`,
-vérifiée entièrement nulle) pour poser des compteurs exacts, à la manière d'un
-code `C2`. Écartée : elle se heurte au même cache JIT que toute écriture de
-code, et le sondage auto-validé donne déjà des résultats exacts sans modifier
-le jeu.
+**Inject PowerPC code** into the free Gecko area (`0x80001800`–`0x80003000`,
+verified to be entirely zero) to place exact counters, in the manner of a
+`C2` code. Rejected: it runs into the same JIT cache as any write to
+code, and self-validated polling already gives exact results without modifying
+the game.

@@ -1,42 +1,42 @@
-# Régions
+# Regions
 
-> Le plan de départ pose la règle : **ne pas confondre les régions**. Ce document
-> établit la correspondance par la preuve plutôt que par la table de codes de
-> triche, et corrige une attribution erronée relevée dans le plan.
+> The initial plan sets the rule: **do not confuse the regions**. This document
+> establishes the correspondence by proof rather than by the cheat code
+> table, and corrects an erroneous attribution noted in the plan.
 
-## Cible du projet
+## Project target
 
-**`GMSE01` — NTSC-U, révision 0.** C'est la région couverte par
-BetterSunshineEngine, par les symboles de Corona et par la map `us.map`. Toutes
-les adresses de [`02-adresses.md`](02-adresses.md) s'y rapportent.
+**`GMSE01` — NTSC-U, revision 0.** This is the region covered by
+BetterSunshineEngine, by the Corona symbols and by the `us.map` map. All
+the addresses in [`02-addresses.md`](02-addresses.md) refer to it.
 
-| Image | Identifiant | Région | SHA-1 du DOL |
+| Image | Identifier | Region | DOL SHA-1 |
 |---|---|---|---|
 | `Super Mario Sunshine (2002)(Nintendo)(US).iso` | `GMSE01` | NTSC-U | `a678…728f` |
 | `Super Mario Sunshine (Europe) (En,Fr,De,Es,It).iso` | `GMSP01` | PAL | `a2ed…02bf` |
 
-Le DOL PAL a été extrait et analysé pour établir la correspondance ci-dessous,
-mais **le projet ne cible pas PAL**. Voir [`adr/0001-region-cible.md`](adr/0001-region-cible.md).
+The PAL DOL was extracted and analysed to establish the correspondence below,
+but **the project does not target PAL**. See [`adr/0001-target-region.md`](adr/0001-target-region.md).
 
 ---
 
-## Correction : `0x8040DD10` et `0x8040BE54` sont des adresses **PAL**
+## Correction: `0x8040DD10` and `0x8040BE54` are **PAL** addresses
 
-Le plan de départ, section « Ne pas confondre les régions », écrit :
+The initial plan, in the section "Do not confuse the regions", states:
 
-> Le portage JP des adresses dans BSE semble faux : `0x8040DD10` et
-> `0x8040BE54` tombent, dans les symboles GMSJ01, sur un littéral de
-> `NpcInitPrg.cpp` et sur des constantes de `s_atan.c`.
+> The JP port of the addresses in BSE seems wrong: `0x8040DD10` and
+> `0x8040BE54` land, in the GMSJ01 symbols, on a literal from
+> `NpcInitPrg.cpp` and on constants from `s_atan.c`.
 
-Le constat est juste — ces adresses ne veulent rien dire en JP — mais la
-conclusion l'est à moitié. **Ce ne sont pas des adresses JP mal portées : ce
-sont les adresses PAL.** Elles figurent telles quelles dans le code
-`$60FPS [gamemasterplc]` de `Sys/GameSettings/GMSP01.ini` livré avec Dolphin.
+The observation is right — these addresses mean nothing in JP — but the
+conclusion is only half right. **They are not badly ported JP addresses: they
+are the PAL addresses.** They appear as-is in the
+`$60FPS [gamemasterplc]` code of `Sys/GameSettings/GMSP01.ini` shipped with Dolphin.
 
-### Preuve
+### Proof
 
-`0x8040DD10` contient `3F000000` (`0.5f`) dans le DOL PAL, et la fonction qui
-le charge est structurellement identique à `SMSGetVSyncTimesPerSec` :
+`0x8040DD10` contains `3F000000` (`0.5f`) in the PAL DOL, and the function that
+loads it is structurally identical to `SMSGetVSyncTimesPerSec`:
 
 ```
 ; GMSP01, 0x8029FC8C
@@ -48,8 +48,8 @@ le charge est structurellement identique à `SMSGetVSyncTimesPerSec` :
 8029FCD8  lfs    f0,  -0x570(r2)   ; 0x8040DD10 = 0.5f
 ```
 
-Même séquence de comparaisons, mêmes trois littéraux, même rôle. `r2` vaut
-`0x8040E280` en PAL (`lis r2,-0x7fc0 ; ori r2,r2,0xe280` @ `0x8000536C`).
+Same sequence of comparisons, same three literals, same role. `r2` is
+`0x8040E280` in PAL (`lis r2,-0x7fc0 ; ori r2,r2,0xe280` @ `0x8000536C`).
 
 ```sh
 : > work/maps/empty.map
@@ -57,77 +57,77 @@ python tools/disasm.py work/dol/GMSP01.dol work/maps/empty.map 0x8029FC8C 20
 python tools/xref.py   work/dol/GMSP01.dol work/maps/empty.map 0x8040DD10
 ```
 
-BSE a donc étiqueté « JP » un jeu d'adresses `GMSP01`. À signaler en amont si le
-projet contribue à ce dépôt.
+BSE therefore labelled a set of `GMSP01` addresses as "JP". To be reported upstream if the
+project contributes to that repository.
 
 ---
 
-## Table de correspondance
+## Correspondence table
 
-| Rôle | `GMSE01` (US) | `GMSP01` (PAL) | Preuve |
+| Role | `GMSE01` (US) | `GMSP01` (PAL) | Proof |
 |---|---|---|---|
-| base `r2` (`.sdata2`) | `0x80416BA0` | `0x8040E280` | **M** |
-| base `r13` (`.sdata`) | `0x804141C0` | `0x8040B960` | **M** |
+| `r2` base (`.sdata2`) | `0x80416BA0` | `0x8040E280` | **M** |
+| `r13` base (`.sdata`) | `0x804141C0` | `0x8040B960` | **M** |
 | `SMSGetVSyncTimesPerSec` | `0x802A7C48` | `0x8029FC8C` | **M** |
-| littéral `0.5f` (horloge logique) | `0x804167B8` | `0x8040DD10` | **M** |
-| littéral `60.0f` | `0x804167D8` | `0x8040DD38` | **M** |
-| littéral `50.0f` | `0x804167DC` | `0x8040DD3C` | **M** |
-| `bl VIWaitForRetrace` dans `waitForRetrace` | `0x802FCB24` | `0x802F4CB4` | **H** (repris du `.ini`, non recoupé) |
-| littéral `0.01f` (`TModelGate`) | `0x80414904` | `0x8040BE54` | **M** pour le contenu, **H** pour le rôle |
-| hook `TBoidLeader` | `0x800066EC` | `0x800066EC` | **H** |
+| literal `0.5f` (logic clock) | `0x804167B8` | `0x8040DD10` | **M** |
+| literal `60.0f` | `0x804167D8` | `0x8040DD38` | **M** |
+| literal `50.0f` | `0x804167DC` | `0x8040DD3C` | **M** |
+| `bl VIWaitForRetrace` in `waitForRetrace` | `0x802FCB24` | `0x802F4CB4` | **H** (taken from the `.ini`, not cross-checked) |
+| literal `0.01f` (`TModelGate`) | `0x80414904` | `0x8040BE54` | **M** for the content, **H** for the role |
+| `TBoidLeader` hook | `0x800066EC` | `0x800066EC` | **H** |
 
-Les deux régions partagent l'adresse du hook `TBoidLeader` — le code exécutable
-de tête est identique. Les écarts n'apparaissent que plus loin :
-`0x802A7C48 − 0x8029FC8C = 0x7FBC` pour le code, `0x804167B8 − 0x8040DD10 = 0x8AA8`
-pour `.sdata2`. **Le décalage n'est pas uniforme** : il ne faut jamais porter
-une adresse d'une région à l'autre par soustraction d'un delta constant.
+The two regions share the address of the `TBoidLeader` hook — the leading executable
+code is identical. The differences only appear further on:
+`0x802A7C48 − 0x8029FC8C = 0x7FBC` for code, `0x804167B8 − 0x8040DD10 = 0x8AA8`
+for `.sdata2`. **The offset is not uniform**: never port
+an address from one region to the other by subtracting a constant delta.
 
-Le nombre de consommateurs diffère aussi : le littéral `0.5f` a **trois**
-références en US et **quatre** en PAL. Un portage mécanique manquerait la
-quatrième.
+The number of consumers also differs: the `0.5f` literal has **three**
+references in US and **four** in PAL. A mechanical port would miss the
+fourth.
 
 ---
 
-## PAL : le code « 60 FPS » n'en donne pas 60
+## PAL: the "60 FPS" code does not give 60
 
-Conséquence directe de la lecture ci-dessus, et point que ni le plan de départ ni le
-`.ini` de Dolphin ne mentionnent.
+A direct consequence of the reading above, and a point that neither the initial plan nor
+Dolphin's `.ini` mentions.
 
-`SMSGetVSyncTimesPerSec()` retourne `résultat × 0.5f`, où `résultat` dépend de
-`VIGetTvFormat()` :
+`SMSGetVSyncTimesPerSec()` returns `result × 0.5f`, where `result` depends on
+`VIGetTvFormat()`:
 
-| Format | Valeur | Retour d'origine | Retour avec `0.5f → 1.0f` |
+| Format | Value | Original return | Return with `0.5f → 1.0f` |
 |---|---|---|---|
 | `VI_NTSC`, `VI_MPAL`, `VI_EURGB60` | `60.0f` | 30 | **60** |
 | `VI_PAL` | `50.0f` | 25 | **50** |
 
-Sur une console ou une configuration Dolphin en PAL 50 Hz, le code
-`$60FPS [gamemasterplc]` de `GMSP01.ini` produit donc **50 FPS**, pas 60. La
-vitesse de jeu reste correcte — l'accumulateur ramène la simulation à 120 Hz
-(4 5 5 5 5 4 5 5 sous-pas, moyenne 4,8 à 25 Hz ; 2 2 3 2 3 2 2 3, moyenne 2,4 à
-50 Hz), mais la présentation plafonne à 50.
+On a console or a Dolphin configuration in PAL 50 Hz, the
+`$60FPS [gamemasterplc]` code of `GMSP01.ini` therefore produces **50 FPS**, not 60. Game
+speed stays correct — the accumulator brings the simulation back to 120 Hz
+(4 5 5 5 5 4 5 5 substeps, average 4.8 at 25 Hz; 2 2 3 2 3 2 2 3, average 2.4 at
+50 Hz), but presentation caps at 50.
 
-Pour 60 FPS réels en PAL il faut **EURGB60** (PAL60 / 480p), qui fait renvoyer
-`VI_EURGB60` à `VIGetTvFormat()`. Pour 120 FPS logiques en PAL 50 Hz, le
-littéral devrait valoir `2.4f`, pas `2.0f` — les valeurs de BSE ne sont pas
-transposables telles quelles.
+For real 60 FPS in PAL, **EURGB60** (PAL60 / 480p) is required, which makes
+`VIGetTvFormat()` return `VI_EURGB60`. For 120 logical FPS in PAL 50 Hz, the
+literal would have to be `2.4f`, not `2.0f` — BSE's values cannot be
+transposed as-is.
 
-> **Non vérifié** — aucune de ces deux conclusions n'a été testée à
-> l'exécution. Elles découlent du code lu, et sont sans objet tant que le
-> projet reste sur `GMSE01`.
+> **Not verified** — neither of these two conclusions has been tested at
+> runtime. They follow from the code as read, and are moot as long as the
+> project stays on `GMSE01`.
 
 ---
 
-## Décompilations
+## Decompilations
 
-| Dépôt | Cible | Utilité ici |
+| Repository | Target | Use here |
 |---|---|---|
-| `doldecomp/sms` | `GMSJ01` | lecture ; PAL cassé, US non supporté |
-| `ryanbevins/Graffito-Decomp` | `GMSJ01` | fork actif, 0 unité *NonMatching* — meilleure base de lecture |
-| `shibbo/Corona` | `GMSE01` | symboles, archivé depuis 2020 |
-| `DotKuribo/BetterSunshineEngine` | `GMSE01` | `maps/us.map`, 15 107 symboles |
+| `doldecomp/sms` | `GMSJ01` | reading; PAL broken, US not supported |
+| `ryanbevins/Graffito-Decomp` | `GMSJ01` | active fork, 0 *NonMatching* units — best base for reading |
+| `shibbo/Corona` | `GMSE01` | symbols, archived since 2020 |
+| `DotKuribo/BetterSunshineEngine` | `GMSE01` | `maps/us.map`, 15 107 symbols |
 
-La décompilation cible **JP** alors que le projet cible **US**. Une lecture de
-la décompilation donne la *structure*, jamais une adresse directement
-utilisable. Toute adresse doit être retrouvée dans le DOL US — c'est
-exactement ce que fait `tools/xref.py`.
+The decompilation targets **JP** whereas the project targets **US**. Reading
+the decompilation gives the *structure*, never a directly usable
+address. Every address must be found again in the US DOL — this is
+exactly what `tools/xref.py` does.

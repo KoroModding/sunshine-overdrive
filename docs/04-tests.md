@@ -1,191 +1,191 @@
-# Phase 0 et batterie de tests
+# Phase 0 and test battery
 
-> Le plan de départ impose : **phase 0 avant tout code**, et **écrire les tests avant
-> les correctifs**. Ce document est le protocole et le relevé.
+> The initial plan requires: **phase 0 before any code**, and **write the tests before
+> the fixes**. This document is the protocol and the readings.
 >
-> **Phase 0 exécutée le 2026-09-15** par instrumentation mémoire externe
-> (`tools/dolphin.py`), sur Dolphin 2606a, GMSE01, Delfino Plaza. Les mesures
-> ci-dessous sont réelles. Les tableaux encore vides ne l'ont pas été.
+> **Phase 0 executed on 2026-09-15** by external memory instrumentation
+> (`tools/dolphin.py`), on Dolphin 2606a, GMSE01, Delfino Plaza. The measurements
+> below are real. The tables that are still empty have not been measured.
 >
-> **Batterie de physique exécutée le 2026-09-15** au même endroit, avec
-> injection d'entrées (`tools/pad.py`) et mesures indexées sur le sous-pas
-> (`tools/substep_clock.py`). Voir aussi
-> [`adr/0003-injection-manette.md`](adr/0003-injection-manette.md) et
-> [`adr/0004-mesure-en-sous-pas.md`](adr/0004-mesure-en-sous-pas.md).
+> **Physics battery executed on 2026-09-15** at the same location, with
+> input injection (`tools/pad.py`) and measurements indexed on the substep
+> (`tools/substep_clock.py`). See also
+> [`adr/0003-controller-injection.md`](adr/0003-controller-injection.md) and
+> [`adr/0004-substep-measurement.md`](adr/0004-substep-measurement.md).
 
 ---
 
-## Phase 0 — confirmer le compte de sous-pas
+## Phase 0 — confirm the substep count
 
-L'analyse statique a établi le *mécanisme* de l'accumulateur
-([`01-mecanismes.md` § 1](01-mecanismes.md)). Elle ne peut pas établir le
-*compte effectif* à l'exécution, ni l'appartenance d'un `perform` donné à une
-liste de simulation ou à une liste par image rendue : les listes sont peuplées
-à l'exécution et parcourues par répartition virtuelle.
+Static analysis established the *mechanism* of the accumulator
+([`01-mechanisms.md` § 1](01-mechanisms.md)). It cannot establish the
+*actual count* at runtime, nor whether a given `perform` belongs to a
+simulation list or to a per-rendered-frame list: the lists are populated
+at runtime and traversed through virtual dispatch.
 
-### 0.A — Watchpoint sur l'accumulateur (mesure directe)
+### 0.A — Watchpoint on the accumulator (direct measurement)
 
-La plus directe des deux méthodes, et celle à faire en premier.
+The more direct of the two methods, and the one to do first.
 
-1. Dolphin → View → Debugging Mode, charger `work/maps/us.map`.
-2. Lancer le jeu, atteindre une zone jouable stable (Delfino Plaza, Mario à
-   l'arrêt).
-3. Récupérer le pointeur `TMarDirector`. Point d'arrêt à l'exécution sur
-   `0x80299838` (`direct()`) : `r3` contient `this`.
-4. Point d'arrêt mémoire **en écriture** sur `this + 0x54`.
-5. Compter les déclenchements entre deux passages en `0x80299938`
-   (`unk54 += vsyncRate`), qui délimite une image rendue.
+1. Dolphin → View → Debugging Mode, load `work/maps/us.map`.
+2. Start the game, reach a stable playable area (Delfino Plaza, Mario
+   standing still).
+3. Retrieve the `TMarDirector` pointer. Execution breakpoint on
+   `0x80299838` (`direct()`): `r3` contains `this`.
+4. Memory breakpoint **on write** on `this + 0x54`.
+5. Count the hits between two passes at `0x80299938`
+   (`unk54 += vsyncRate`), which delimits a rendered frame.
 
-| Cadence | `vsyncRate` attendu | Sous-pas/image attendu | `vsyncRate` **mesuré** | Sous-pas/image **mesuré** |
+| Rate | Expected `vsyncRate` | Expected substeps/frame | **Measured** `vsyncRate` | **Measured** substeps/frame |
 |---|---|---|---|---|
-| 30 FPS (non patché) | 20 | 4 | **20** | **4,000** |
-| 60 FPS (patché) | 10 | 2 | **10** | **1,992** |
-| 120 FPS (patché) | 5 | 1 | **5** | **1,000** |
+| 30 FPS (unpatched) | 20 | 4 | **20** | **4.000** |
+| 60 FPS (patched) | 10 | 2 | **10** | **1.992** |
+| 120 FPS (patched) | 5 | 1 | **5** | **1.000** |
 
-Relevé complet, sondage de 4 s par palier :
+Full readings, 4 s of sampling per tier:
 
-| Palier | images/s | sous-pas/s | vitesse de simulation |
+| Tier | frames/s | substeps/s | simulation speed |
 |---|---|---|---|
-| 30 FPS (origine) | 30,00 | 120,00 | **100 %** |
-| 60 FPS | **60,00** | 119,50 | **99,6 %** |
-| 120 FPS sans overclock VI | 60,00 | 60,00 | 50 % — **mi-vitesse** |
+| 30 FPS (original) | 30.00 | 120.00 | **100 %** |
+| 60 FPS | **60.00** | 119.50 | **99.6 %** |
+| 120 FPS without VI overclock | 60.00 | 60.00 | 50 % — **half speed** |
 
-Le palier 120 plafonne parce que la présentation ne peut pas dépasser le taux
-de champs du VI (59,94 Hz). Il exige le **VBI Frequency Override** de Dolphin à
-2×. Ce n'est pas un défaut du modèle : c'est sa confirmation.
+The 120 tier caps out because presentation cannot exceed the VI field
+rate (59.94 Hz). It requires Dolphin's **VBI Frequency Override** at
+2×. This is not a flaw in the model: it is its confirmation.
 
-L'échantillonnage est **auto-validé** — sur 750 transitions relevées à 30 FPS,
-les 600 décréments valent tous exactement 5 et les 150 incréments tous
-exactement 20. Aucune transition manquée.
+The sampling is **self-validated** — out of 750 transitions recorded at 30 FPS,
+the 600 decrements are all exactly 5 and the 150 increments all
+exactly 20. No transition missed.
 
-Lire aussi la valeur de `r25` au sortir de `0x8029986C` : elle doit valoir
-exactement 20, 10 puis 5.
+Also read the value of `r25` on exiting `0x8029986C`: it must be
+exactly 20, 10, then 5.
 
-### 0.B — Watchpoint sur `mVel.y` de Mario (contre-mesure)
+### 0.B — Watchpoint on Mario's `mVel.y` (cross-check)
 
-Méthode indiquée par le plan de départ. Elle vaut comme **contrôle indépendant** de
-0.A : elle mesure le nombre d'exécutions de `movement()`, pas le nombre de
-soustractions de l'accumulateur. Les deux doivent concorder.
+Method specified by the initial plan. It serves as an **independent check** of
+0.A: it measures the number of executions of `movement()`, not the number of
+subtractions from the accumulator. The two must agree.
 
-1. Récupérer `gpMarioOriginal`, en déduire l'adresse de `mVel.y`.
-2. Point d'arrêt mémoire en écriture, Mario en chute libre (saut depuis un
-   point haut) pour garantir une écriture par sous-pas.
-3. Compter les déclenchements par champ VI, à 30 puis à 60 FPS.
+1. Retrieve `gpMarioOriginal`, derive the address of `mVel.y` from it.
+2. Memory breakpoint on write, Mario in free fall (jump from a
+   high point) to guarantee one write per substep.
+3. Count the hits per VI field, at 30 then at 60 FPS.
 
-Attendu : 4, puis 2.
+Expected: 4, then 2.
 
-**Réalisé autrement, et de façon plus probante** : plutôt qu'un point d'arrêt
-sur `mVel.y`, la chute libre automatisée (§ *Physique* ci-dessous) compte les
-intégrations de la position. Elle donne **198 intégrations à 30 FPS et 198 à
-60 FPS** — chiffre identique, soit ~120 Hz dans les deux cas. Cela recoupe 0.A
-par une voie entièrement indépendante de l'accumulateur.
+**Done differently, and more conclusively**: rather than a breakpoint
+on `mVel.y`, the automated free fall (§ *Physics* below) counts the
+position integrations. It gives **198 integrations at 30 FPS and 198 at
+60 FPS** — an identical figure, i.e. ~120 Hz in both cases. This cross-checks 0.A
+through a path entirely independent of the accumulator.
 
-> 0.A et 0.B **concordent**. Le modèle de l'accumulateur est confirmé.
+> 0.A and 0.B **agree**. The accumulator model is confirmed.
 
-### 0.C — Classer les listes de perform
+### 0.C — Classify the perform lists
 
-Déterminer, pour chaque objet à corriger, s'il est appelé par sous-pas ou par
-image rendue. C'est la mesure qui décide de tout le reste.
+Determine, for each object to fix, whether it is called per substep or per
+rendered frame. This is the measurement that decides everything else.
 
-1. Point d'arrêt à l'exécution sur le `perform` de l'objet.
-2. Compter les déclenchements entre deux passages en `0x80299938`.
+1. Execution breakpoint on the object's `perform`.
+2. Count the hits between two passes at `0x80299938`.
 
-| Résultat | Classement | Correction nécessaire |
+| Result | Classification | Correction needed |
 |---|---|---|
-| 4 à 30 FPS, 2 à 60 FPS | liste de **simulation** | aucune |
-| 1 à 30 FPS, 1 à 60 FPS | liste **par image rendue** | facteur `30 / cadence` |
+| 4 at 30 FPS, 2 at 60 FPS | **simulation** list | none |
+| 1 at 30 FPS, 1 at 60 FPS | **per-rendered-frame** list | factor `30 / rate` |
 
-Premier objet à passer au crible : `TModelGate::perform` @ `0x801EB014`, pour
-trancher l'anomalie du § 4.3 de [`01-mecanismes.md`](01-mecanismes.md).
+First object to screen: `TModelGate::perform` @ `0x801EB014`, to
+settle the anomaly of § 4.3 of [`01-mechanisms.md`](01-mechanisms.md).
 
 ---
 
-## Test dédié — l'anomalie `0x80414904`
+## Dedicated test — the `0x80414904` anomaly
 
-Le littéral `0.01f` est un incrément **par appel** du fondu de `TModelGate`.
-BSE et `gamemasterplc` le **doublent** à chaque palier. Les deux lectures
-possibles de la règle de classement disent qu'il faudrait soit ne rien faire,
-soit **diviser**. L'expérience tranche :
+The literal `0.01f` is a **per-call** increment of the `TModelGate` fade.
+BSE and `gamemasterplc` **double** it at each tier. Both possible
+readings of the classification rule say that one should either do nothing,
+or **divide**. The experiment settles it:
 
-| # | Cadence | `0x80414904` | Durée du fondu attendue si le patch est correct | Mesuré |
+| # | Rate | `0x80414904` | Expected fade duration if the patch is correct | Measured |
 |---|---|---|---|---|
-| 1 | 30 FPS | `0.01f` (d'origine) | référence | |
-| 2 | 60 FPS | `0.01f` (non patché) | = réf. si liste de simulation ; ½ réf. si par image | |
-| 3 | 60 FPS | `0.02f` (patché) | = réf. | |
-| 4 | 120 FPS | `0.04f` (patché) | = réf. | |
+| 1 | 30 FPS | `0.01f` (original) | reference | |
+| 2 | 60 FPS | `0.01f` (unpatched) | = ref. if simulation list; ½ ref. if per frame | |
+| 3 | 60 FPS | `0.02f` (patched) | = ref. | |
+| 4 | 120 FPS | `0.04f` (patched) | = ref. | |
 
-Protocole : approcher un portail en ligne droite à vitesse constante depuis
-au-delà de 1000 unités, chronométrer en nombre de champs VI entre le
-franchissement du seuil et `m0xD0 == 1.0f` (point d'arrêt sur l'écriture en
+Protocol: approach a gate in a straight line at constant speed from
+beyond 1000 units, time it in number of VI fields between the
+crossing of the threshold and `m0xD0 == 1.0f` (breakpoint on the write at
 `0x801EB188`).
 
-**Si la mesure 2 est égale à la mesure 1**, `TModelGate::perform` est dans une
-liste de simulation, aucune correction n'est nécessaire, et la ligne
-`04414904` du Gecko est à retirer.
+**If measurement 2 equals measurement 1**, `TModelGate::perform` is in a
+simulation list, no correction is needed, and the `04414904` line
+of the Gecko code must be removed.
 
 ---
 
-## Batterie de régression
+## Regression battery
 
-À exécuter à chaque palier, avec les mêmes entrées. Le plan prévoyait un
-enregistrement `.dtm` ; l'injection mémoire de `tools/pad.py` s'est révélée
-plus commode et surtout scriptable — voir
-[`adr/0003-injection-manette.md`](adr/0003-injection-manette.md).
+To be run at each tier, with the same inputs. The plan called for a
+`.dtm` recording; the memory injection of `tools/pad.py` turned out to be
+more convenient and, above all, scriptable — see
+[`adr/0003-controller-injection.md`](adr/0003-controller-injection.md).
 
-Unité de mesure : le **sous-pas de simulation**, compté par
-`tools/substep_clock.py`. Ni la seconde ni l'image ne conviennent :
+Unit of measurement: the **simulation substep**, counted by
+`tools/substep_clock.py`. Neither the second nor the frame is suitable:
 
-| Unité | Pourquoi elle ne va pas |
+| Unit | Why it does not work |
 |---|---|
-| seconde | le nombre d'images couvertes change avec la cadence, et le taux de réussite de l'injection avec lui |
-| image rendue | c'est précisément la variable que l'on fait changer |
-| champ VI | stable, mais ne dit rien du nombre d'intégrations exécutées |
-| **sous-pas** | **120 Hz constants par construction — la seule grandeur commune aux paliers** |
+| second | the number of frames covered changes with the rate, and the injection success rate with it |
+| rendered frame | it is precisely the variable being changed |
+| VI field | stable, but says nothing about the number of integrations executed |
+| **substep** | **constant 120 Hz by construction — the only quantity common to all tiers** |
 
-Le détail du raisonnement est en
-[`adr/0004-mesure-en-sous-pas.md`](adr/0004-mesure-en-sous-pas.md).
+The detailed reasoning is in
+[`adr/0004-substep-measurement.md`](adr/0004-substep-measurement.md).
 
-### Physique — ne doit jamais bouger
+### Physics — must never change
 
-Un écart ici signifie que l'accumulateur ne fait pas son travail, et
-**interdit** de corriger en retouchant les `.prm` : c'est la cause qu'il faut
-chercher, pas le symptôme.
+A discrepancy here means that the accumulator is not doing its job, and
+**forbids** correcting it by editing the `.prm` files: it is the cause that must be
+sought, not the symptom.
 
-| Test | Grandeur mesurée | 30 | 60 | 120 |
+| Test | Measured quantity | 30 | 60 | 120 |
 |---|---|---|---|---|
-| **chute libre** | **intégrations de position** | **198** | **198** | |
-| **chute libre** | **durée réelle** | **1,655 s** | **1,635 s** (+1,2 %) | |
-| **chute libre** | **distance parcourue** | **3000,0** | **3000,0** | |
-| **arc balistique** (`vy` = 42) | **suite des vitesses verticales** | **identique** | **identique** | |
-| **arc balistique** | **intégrations jusqu'au sommet** | **42** | **42** | |
-| **arc balistique** | **altitude du sommet** | **225,75** | **225,75** | |
-| **saut court** (A, 6 sous-pas) | hauteur maximale | 73,79 | 73,79 | |
-| **course** (120 sous-pas) | vitesse maximale | 8,91 | 8,91 | |
-| course — distance parcourue | distance | *165,17* | *160,82* | |
-| saut long (A, 40 sous-pas) | hauteur maximale | *96,60* | *81,59* | |
-| triple saut | hauteur maximale | | | |
-| plongeon | distance parcourue | | | |
-| glissade | distance d'arrêt | | | |
-| hover (F.L.U.D.D.) | champs de suspension à réservoir plein | | | |
+| **free fall** | **position integrations** | **198** | **198** | |
+| **free fall** | **real duration** | **1.655 s** | **1.635 s** (+1.2 %) | |
+| **free fall** | **distance travelled** | **3000.0** | **3000.0** | |
+| **ballistic arc** (`vy` = 42) | **sequence of vertical velocities** | **identical** | **identical** | |
+| **ballistic arc** | **integrations to apex** | **42** | **42** | |
+| **ballistic arc** | **apex altitude** | **225.75** | **225.75** | |
+| **short jump** (A, 6 substeps) | maximum height | 73.79 | 73.79 | |
+| **run** (120 substeps) | maximum speed | 8.91 | 8.91 | |
+| run — distance travelled | distance | *165.17* | *160.82* | |
+| long jump (A, 40 substeps) | maximum height | *96.60* | *81.59* | |
+| triple jump | maximum height | | | |
+| dive | distance travelled | | | |
+| slide | stopping distance | | | |
+| hover (F.L.U.D.D.) | hover fields with a full tank | | | |
 
-*En italique : mesures faussées par le décor, voir ci-dessous. Elles ne sont pas
-des résultats, elles sont une leçon de méthode.*
+*In italics: measurements skewed by the scenery, see below. They are not
+results, they are a lesson in method.*
 
-*La vitesse de course, elle, coïncide à la décimale entre paliers — mais à
-8,91, soit la valeur d'un Mario qui pousse contre un obstacle ; en terrain
-libre elle monte vers 32. Le choix automatique de direction
-(`probe_open_direction`) n'a donc pas trouvé de dégagement depuis ce point de
-départ. La coïncidence reste informative, elle n'est pas la mesure voulue.*
+*The running speed, for its part, matches to the decimal between tiers — but at
+8.91, which is the value of a Mario pushing against an obstacle; on open
+ground it rises towards 32. The automatic choice of direction
+(`probe_open_direction`) therefore did not find a clearing from this starting
+point. The coincidence remains informative, it is not the intended measurement.*
 
-### L'arc balistique — la mesure qui tranche
+### The ballistic arc — the decisive measurement
 
 ```sh
 python tools/test_ballistic.py 42 30 60
 ```
 
-Mario est placé à 2500 unités du sol, sa vitesse verticale est imposée à 42, et
-l'arc est relevé sous-pas par sous-pas. Aucune entrée, aucun contact, aucun
-type de saut : il ne reste que l'intégrateur.
+Mario is placed 2500 units above the ground, his vertical velocity is forced to 42, and
+the arc is recorded substep by substep. No input, no contact, no
+jump type: only the integrator remains.
 
 ```
 suite vy à 30 FPS : [42.0, 41.0, 40.0, 39.0, 38.0, 37.0, 36.0, 35.0, 34.0, …]
@@ -193,190 +193,190 @@ suite vy à 60 FPS : [42.0, 41.0, 40.0, 39.0, 38.0, 37.0, 36.0, 35.0, 34.0, …]
 => suites IDENTIQUES sur 90 intégrations.
 ```
 
-**Gravité = exactement 1,0 unité de vitesse par sous-pas, aux deux paliers.**
-Sommet à 225,75 des deux côtés, 42 intégrations jusqu'à l'apogée. Avec la chute
-libre, c'est la démonstration la plus directe que la physique est découplée de
-la cadence d'affichage.
+**Gravity = exactly 1.0 velocity unit per substep, at both tiers.**
+Apex at 225.75 on both sides, 42 integrations to the apex. Together with free
+fall, this is the most direct demonstration that the physics is decoupled from
+the display rate.
 
-### La fausse alarme du saut long — à lire avant d'interpréter un écart
+### The long jump false alarm — read before interpreting a discrepancy
 
-Le premier relevé annonçait `ÉCART SIGNIFICATIF` : 96,60 contre 81,59 sur la
-hauteur du saut long, 14,66 % d'écart, parfaitement reproductible. Trois
-hypothèses ont été écartées par la mesure :
+The first reading reported `ÉCART SIGNIFICATIF`: 96.60 versus 81.59 on the
+long jump height, a 14.66 % discrepancy, perfectly reproducible. Three
+hypotheses were ruled out by measurement:
 
-| Hypothèse | Vérification | Verdict |
+| Hypothesis | Check | Verdict |
 |---|---|---|
-| l'injection d'entrées est aléatoire | variance intra-palier sur 6 essais | **écartée** — 0,00 d'étendue à 60 FPS |
-| le type de saut diffère (double, triple) | `vy` initiale relevée | **écartée** — 42,0 aux deux paliers |
-| le relâchement de A est vu plus tard à 30 FPS | balayage de 6 à 150 sous-pas de maintien | **écartée** — hauteur insensible à la durée |
+| input injection is random | intra-tier variance over 6 trials | **ruled out** — 0.00 range at 60 FPS |
+| the jump type differs (double, triple) | initial `vy` recorded | **ruled out** — 42.0 at both tiers |
+| the release of A is seen later at 30 FPS | sweep from 6 to 150 substeps of holding | **ruled out** — height insensitive to duration |
 
-Reste le décor : un arc libre depuis `vy` = 42 culmine à **225,75**, alors que
-les deux sauts mesurés plafonnaient à 96,60 et 81,59. Mario tapait un plafond
-ou un surplomb près du mur choisi comme direction « dégagée ». Ce n'était pas
-de la physique.
+What remains is the scenery: a free arc from `vy` = 42 peaks at **225.75**, whereas
+the two measured jumps topped out at 96.60 and 81.59. Mario was hitting a ceiling
+or an overhang near the wall chosen as the "clear" direction. It was not
+physics.
 
-**La leçon est dans l'outillage.** Une hauteur d'apogée et une distance
-parcourue sont des grandeurs *de sortie* : elles mesurent le relief autant que
-l'intégrateur. `tools/test_physics.py` a donc été révisé — son verdict porte
-désormais sur les **profils par sous-pas** (suite des vitesses), les hauteurs et
-distances n'étant plus qu'indicatives. Cette révision **n'a pas encore été
-rejouée** sur un Dolphin en cours d'exécution ; le tableau ci-dessus est celui
-de l'ancien critère.
+**The lesson lies in the tooling.** An apex height and a distance
+travelled are *output* quantities: they measure the terrain as much as
+the integrator. `tools/test_physics.py` was therefore revised — its verdict now
+rests on the **per-substep profiles** (sequence of velocities), with heights and
+distances now only indicative. This revision **has not yet been
+re-run** on a running Dolphin; the table above is the one
+from the old criterion.
 
-### À faire à la prochaine session de mesure
+### To do at the next measurement session
 
-Dans cet ordre — chaque point conditionne le suivant :
+In this order — each item conditions the next:
 
-1. **Choisir un point de départ dégagé** avant tout le reste. Delfino Plaza au
-   pied du mur fausse à la fois la course (8,91 au lieu de ~32) et le saut
-   (plafond). La plage ou une grande place conviennent ; le test le dira
-   lui-même, `probe_open_direction` devant rapporter une distance franchement
-   supérieure à 165.
-2. **Rejouer `test_physics.py`** avec le critère par profils. C'est la seule
-   partie du projet dont le code a changé sans être réexécutée.
-3. **Mesurer le palier 120** avec le VBI Frequency Override à 2×. Tout est
-   prêt : `second_instance.py start --vi 2.0` lance, navigue et arrive en jeu
-   seul. Ne pas le faire pendant qu'une autre instance tourne — elles se
-   disputent le GPU et la cadence mesurée n'a plus de sens.
-4. **Compléter les lignes vides** de ce document : triple saut, plongeon,
-   glissade, hover. Elles demandent des séquences d'entrées, pas de nouvelle
-   mécanique.
+1. **Choose a clear starting point** before anything else. Delfino Plaza at the
+   foot of the wall skews both the run (8.91 instead of ~32) and the jump
+   (ceiling). The beach or a large square are suitable; the test will say so
+   itself, since `probe_open_direction` must report a distance clearly
+   greater than 165.
+2. **Re-run `test_physics.py`** with the profile criterion. It is the only
+   part of the project whose code has changed without being re-executed.
+3. **Measure the 120 tier** with the VBI Frequency Override at 2×. Everything is
+   ready: `second_instance.py start --vi 2.0` launches, navigates and reaches gameplay
+   on its own. Do not do it while another instance is running — they
+   compete for the GPU and the measured rate no longer means anything.
+4. **Fill in the empty rows** of this document: triple jump, dive,
+   slide, hover. They require input sequences, not new
+   mechanics.
 
-### Cadencé par image rendue — suspects désignés
+### Timed per rendered frame — designated suspects
 
-Ces éléments sont ceux que le plan de départ recense comme cassés. Chacun doit être
-classé par la méthode 0.C avant d'être corrigé.
+These elements are the ones the initial plan lists as broken. Each must be
+classified with method 0.C before being fixed.
 
-| Test | Grandeur mesurée | 30 | 60 | 120 |
+| Test | Measured quantity | 30 | 60 | 120 |
 |---|---|---|---|---|
-| boîte de dialogue | champs d'affichage (`0x251` : 20 / 40 / 80) | | | |
-| `TSMSFader` | champs du fondu | | | |
-| transition HX Circle | champs | | | |
-| transition HX GameOver | champs | | | |
-| écran de sélection des Shines | champs par pas de défilement | | | |
-| cutscene d'intro | champs, début à fin | | | |
-| chargement de niveau | champs | | | |
-| fondu `TModelGate` | champs (voir ci-dessus) | | | |
+| dialogue box | display fields (`0x251`: 20 / 40 / 80) | | | |
+| `TSMSFader` | fade fields | | | |
+| HX Circle transition | fields | | | |
+| HX GameOver transition | fields | | | |
+| Shine select screen | fields per scroll step | | | |
+| intro cutscene | fields, start to end | | | |
+| level loading | fields | | | |
+| `TModelGate` fade | fields (see above) | | | |
 
-### Objets et ennemis
+### Objects and enemies
 
-| Test | Grandeur mesurée | 30 | 60 | 120 |
+| Test | Measured quantity | 30 | 60 | 120 |
 |---|---|---|---|---|
-| nuée d'oiseaux (`TBoidLeader`) | champs pour un tour de boucle | | | |
-| boss anguille | champs par phase | | | |
-| Petey Piranha | champs par cycle d'attaque | | | |
-| `TJointCoin` / SandBird | champs d'animation | | | |
-| FireWanwan | vitesse de déplacement | | | |
-| ennemi scripté (Strollin' Stu) | champs par cycle de patrouille | | | |
+| bird flock (`TBoidLeader`) | fields for one loop lap | | | |
+| eel boss | fields per phase | | | |
+| Petey Piranha | fields per attack cycle | | | |
+| `TJointCoin` / SandBird | animation fields | | | |
+| FireWanwan | movement speed | | | |
+| scripted enemy (Strollin' Stu) | fields per patrol cycle | | | |
 
 ---
 
 ## Instrumentation
 
-Ce que le projet utilise réellement :
+What the project actually uses:
 
-- **Mémoire émulée** — `tools/dolphin.py`, lecture/écriture de la MEM1 depuis
-  l'extérieur. Ni débogueur, ni point d'arrêt, ni action dans l'interface.
-- **Correctifs réversibles** — `tools/patch.py`, qui n'écrit que des données
-  (le JIT ignore les écritures dans le code).
-- **Entrées** — `tools/pad.py`, injection dans `TMarioGamePad`.
-- **Horloge** — `tools/substep_clock.py`, sur l'accumulateur du directeur.
+- **Emulated memory** — `tools/dolphin.py`, reading/writing MEM1 from
+  outside. No debugger, no breakpoint, no action in the UI.
+- **Reversible fixes** — `tools/patch.py`, which only writes data
+  (the JIT ignores writes to code).
+- **Inputs** — `tools/pad.py`, injection into `TMarioGamePad`.
+- **Clock** — `tools/substep_clock.py`, on the director's accumulator.
 
-Ce que le plan prévoyait, resté en réserve :
+What the plan called for, kept in reserve:
 
-- **Points d'arrêt** — Dolphin, View → Debugging Mode, map chargée depuis
-  `work/maps/us.map`. Reste nécessaire pour l'étape 0.C : classer un `perform`
-  demande de compter ses exécutions, ce qu'aucune lecture de mémoire ne donne.
-- **Recherche RAM** — `dolphin-memory-engine` (aldelaro5).
-- **Comptage de champs** — log `VIDEOINTERFACE` en niveau DEBUG : `LogField()`
-  émet `WPL / STD / EQU / PRB / ACV / PSB` à chaque champ.
-- **Enregistrement `.dtm`** — remplacé par l'injection mémoire, qui a l'avantage
-  de se piloter depuis le même script que la mesure.
-
----
-
-## Règle de consignation
-
-Une ligne de mesure n'est renseignée que si elle a été **exécutée**. Une valeur
-attendue par le calcul se note dans la colonne « attendu », jamais dans
-« mesuré ». Un tableau à moitié vide est une information ; un tableau rempli de
-suppositions est un piège pour la suite du projet.
+- **Breakpoints** — Dolphin, View → Debugging Mode, map loaded from
+  `work/maps/us.map`. Still needed for step 0.C: classifying a `perform`
+  requires counting its executions, which no memory read provides.
+- **RAM search** — `dolphin-memory-engine` (aldelaro5).
+- **Field counting** — `VIDEOINTERFACE` log at DEBUG level: `LogField()`
+  emits `WPL / STD / EQU / PRB / ACV / PSB` at every field.
+- **`.dtm` recording** — replaced by memory injection, which has the advantage
+  of being driven from the same script as the measurement.
 
 ---
 
-## Palier 120 FPS — relevés du 2026-09-22
+## Recording rule
 
-Dolphin 2606a, GMSE01, Delfino Plaza. Profil `deliver/GMSE01.ini` appliqué,
-VI overclocké à 2×.
+A measurement row is filled in only if it has been **executed**. A value
+expected by calculation is written in the "expected" column, never in
+"measured". A half-empty table is information; a table filled with
+guesses is a trap for the rest of the project.
 
-### Cadence
+---
 
-`measure_substeps.py` et `validate_120.py`, cinq mesures successives.
+## 120 FPS tier — readings of 2026-09-22
 
-| Grandeur | Attendu | Mesuré |
+Dolphin 2606a, GMSE01, Delfino Plaza. Profile `deliver/GMSE01.ini` applied,
+VI overclocked to 2×.
+
+### Rate
+
+`measure_substeps.py` and `validate_120.py`, five successive measurements.
+
+| Quantity | Expected | Measured |
 |---|---|---|
 | `vsyncRate` | 5 | **5** |
-| images présentées | 119,88 /s | **119,87 · 119,80 · 119,80 · 119,80 · 119,83** |
-| sous-pas | 120,00 /s | **119,87 · 119,80 · 119,80 · 120,00 · 120,00** |
-| sous-pas par image | 1,000 | **1,000 · 1,000 · 1,000 · 1,002 · 1,001** |
-| vitesse de simulation | 100 % | **99,8 – 100,0 %** |
+| frames presented | 119.88 /s | **119.87 · 119.80 · 119.80 · 119.80 · 119.83** |
+| substeps | 120.00 /s | **119.87 · 119.80 · 119.80 · 120.00 · 120.00** |
+| substeps per frame | 1.000 | **1.000 · 1.000 · 1.000 · 1.002 · 1.001** |
+| simulation speed | 100 % | **99.8 – 100.0 %** |
 
-Échantillonnage auto-validé à chaque mesure : tous les décréments valent
-exactement 5, tous les incréments exactement 5.
+Sampling self-validated at each measurement: all decrements are
+exactly 5, all increments exactly 5.
 
-**Une mesure aberrante, gardée ici.** Une sixième mesure, prise juste après un
-changement de scène, a relevé **87,33 images/s et 87,50 sous-pas/s**, soit
-72,9 % de la vitesse correcte. Les quatre mesures suivantes sont revenues à
-119,8 sans intervention. À 120 FPS, l'hôte n'a plus de marge : quand Dolphin ne
-tient pas la cadence, **le jeu ralentit pour de bon** — il n'y a pas de
-mécanisme de rattrapage. L'à-coup n'a pas été caractérisé.
+**One outlier measurement, kept here.** A sixth measurement, taken just after a
+scene change, recorded **87.33 frames/s and 87.50 substeps/s**, i.e.
+72.9 % of the correct speed. The next four measurements returned to
+119.8 without intervention. At 120 FPS, the host has no headroom left: when Dolphin
+cannot hold the rate, **the game genuinely slows down** — there is no
+catch-up mechanism. The stutter has not been characterized.
 
-### Physique — arc balistique
+### Physics — ballistic arc
 
 `python tools/test_ballistic.py 42 30 120`
 
-| Grandeur | 30 FPS | 120 FPS | Verdict |
+| Quantity | 30 FPS | 120 FPS | Verdict |
 |---|---|---|---|
-| suite des vitesses verticales | référence | **identique sur 90 intégrations** | ✔ |
-| intégrations jusqu'au sommet | 42 | **42** | ✔ |
-| altitude du sommet | 225,75 | **225,75** | ✔ |
+| sequence of vertical velocities | reference | **identical over 90 integrations** | ✔ |
+| integrations to apex | 42 | **42** | ✔ |
+| apex altitude | 225.75 | **225.75** | ✔ |
 
-Les mêmes valeurs qu'aux paliers 30 et 60 relevés en session 3. La gravité vaut
-1,0 unité de vitesse par sous-pas aux trois paliers.
+The same values as at the 30 and 60 tiers recorded in session 3. Gravity is
+1.0 velocity unit per substep at all three tiers.
 
-### Physique — chute libre
+### Physics — free fall
 
 `python tools/test_freefall.py 3000 120`
 
-| Grandeur | 30 FPS (session 2) | 120 FPS | Écart |
+| Quantity | 30 FPS (session 2) | 120 FPS | Discrepancy |
 |---|---|---|---|
-| durée réelle d'une chute de 3000 u | 1,655 s | **1,656 s** | **0,06 %** |
-| intégrations | 198 | 199 | 1 |
+| real duration of a 3000 u fall | 1.655 s | **1.656 s** | **0.06 %** |
+| integrations | 198 | 199 | 1 |
 
-La durée réelle est la mesure qui compte : elle dit que le jeu tourne à la bonne
-vitesse **en temps réel**, et pas seulement par sous-pas. L'unité d'écart sur le
-compte d'intégrations est un effet de bord du détecteur, pas une différence de
-physique — l'arc balistique, lui, est exact au flottant près.
+The real duration is the measurement that matters: it says that the game runs at the correct
+speed **in real time**, and not only per substep. The one-unit discrepancy in the
+integration count is a side effect of the detector, not a difference in
+physics — the ballistic arc, for its part, is exact to floating-point precision.
 
-### Ce qui n'est pas passé
+### What did not pass
 
-| Sujet | État |
+| Topic | Status |
 |---|---|
-| particules JPA | **cassé puis compensé** — voir ci-dessous |
-| audio sous overclock VI | **non jugé** — l'instrumentation n'entend rien |
-| transitions HX, fondus, minuteurs de dialogue | **non testés**, et attendus faux (×4) |
-| boss, ennemis scriptés | **non testés** |
+| JPA particles | **broken then compensated** — see below |
+| audio under VI overclock | **not judged** — the instrumentation hears nothing |
+| HX transitions, fades, dialogue timers | **not tested**, and expected to be wrong (×4) |
+| bosses, scripted enemies | **not tested** |
 
-### Particules — le défaut trouvé à l'usage
+### Particles — the defect found in use
 
-Signalé à l'œil, pas par un test : jets d'eau figés, et animation d'entrée dans
-un graffiti absente. Cause en [`01-mecanismes.md` § 5](01-mecanismes.md) —
-`JPAEmitterManager::calc()` appelé `(int)SMSGetAnmFrameRate()` fois par image,
-soit **zéro** à 120 FPS.
+Reported by eye, not by a test: frozen water jets, and the entry animation into
+a graffiti missing. Cause in [`01-mechanisms.md` § 5](01-mechanisms.md) —
+`JPAEmitterManager::calc()` called `(int)SMSGetAnmFrameRate()` times per frame,
+i.e. **zero** at 120 FPS.
 
-Correctif posé (`0x802887B0 → li r23, 1`) : **vérifié présent en mémoire**,
-**non vérifié à l'œil**. Et il est imparfait par construction — il fait avancer
-les particules à 120 Hz au lieu de 60.
+Fix applied (`0x802887B0 → li r23, 1`): **verified present in memory**,
+**not verified by eye**. And it is imperfect by construction — it advances
+the particles at 120 Hz instead of 60.
 
-**Test à écrire** : chronométrer la durée de vie d'un effet JPA aux trois
-paliers. C'est la seule façon de mesurer le facteur 2 plutôt que de le déduire.
+**Test to write**: time the lifetime of a JPA effect at all three
+tiers. It is the only way to measure the factor of 2 rather than deduce it.
