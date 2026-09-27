@@ -1296,3 +1296,47 @@ mots, repli `work/GMSE01.avant-poink.ini`.
 Après : le Poink vole 54 pas (0,45 s), 4630 u, et explose sur `TBPNavel`
 (nombril de Petey), qui se réveille. Validé par l'auteur (« ils volent
 normalement »). Un seul lancer mesuré après correctif.
+
+## 2026-09-27 — Goop rose (Bianco) et flaques de Petey
+
+Signalement de l'auteur : la goop rose garde des bords en escalier ; la goop
+crachée par Petey s'affiche « en 3 frames », « des fois normale, des fois non ».
+
+**Trois causes, relevées en jeu** (`tools/goop_ctl.py`, `tools/goop_inspect.py`) :
+
+1. **9 couches** dans l'épisode de la goop rose (7 murales, 2 de sol) pour
+   `MAXL = 8` emplacements : la 9e (128×128) n'était pas traitée. MAXL → 16
+   (`goop_roots` 0x80002FA0–0x80002FDF).
+2. **Display lists figées** : les 2 grandes couches de sol ont un
+   `J3DMatPacket` verrouillé (+0x10 bit 0) ; leur BP 0x94 (TX_IMAGE3 map0)
+   reste sur le masque, rebrancher le J3DTexture n'y change rien. Preuve :
+   lissage coupé en direct, aucun changement à l'écran ; mot réécrit à la
+   main dans les deux tampons (+5) → « lisse ! ». Module : `patch_dl`, tous
+   les 16 passages, n'écrit qu'un mot valant déjà le masque ou la copie.
+   Toutes les copies relues : écart 0 avec tente(masque).
+3. **Tâches « modèle »** (`TPollutionCounterLayer::pushModelStampTask`,
+   appelée par `stampModel` : `TBPPolDrop`, `TBPVomit`, `TBossGesso`,
+   `TEnemyMario`, `TPolluterBase`…) hors des tampons `pushTask` suivis :
+   rattrapées seulement par le balayage de fond (4 lignes/passage).
+   `tools/watch_poldrop.py` : étalement 0,5 trame/image, 79 trames en 156
+   images = **60 trames/s, vitesse d'origine** (2,0 × 30) — l'étalement lent
+   est normal. `tools/watch_goop_growth.py` : sur la couche de l'arène
+   (512×512), la copie ne rattrapait le masque que toutes les ~16 images, par
+   bonds (+77, +100 texels) — selon la position du balayage.
+   Flaque mesurée : ~600 u autour du tampon (échelle 2), 2 flaques.
+   Module : crochet 0x8019B120 → `goop_model_tramp` → `goop_mark_model` :
+   zone carrée de rayon 400 u × échelle autour de la translation du modèle,
+   recalculée 8 passages, renouvelée à chaque tâche ; zone distincte de celle
+   des tampons. Interrupteur `goop_ctl.py model on|off`.
+
+Essai intermédiaire abandonné : balayage rapide de toute la couche (32
+lignes/passage) après une tâche modèle — insuffisant sur 512 lignes (16
+passages par tour) ; crochet `pushJointObjStampTask` retiré avec lui (place).
+Oubli corrigé en cours de route : champ `burst` non initialisé dans
+`goop_init` (valeurs du tas relevées : 81, 108).
+
+Place : `patch_dl` en zone E 0x80001CFC–0x80001D80 (132 o, pleine) ;
+`goop_mark_model` en zone A, `slot_of` en zone C, `mark_rect` et le
+trampoline en zone B. Profil **1484 mots**, repli
+`work/GMSE01.avant-goop2.ini`. Validé par l'auteur : « tout est lisse, ça
+s'étale de façon fluide ». Publié en v1.3.0.

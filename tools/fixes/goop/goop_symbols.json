@@ -2,8 +2,13 @@
  "goop_push_tramp": "0x80001AE0",
  "live": "0x80001B44",
  "goop_init": "0x80001F20",
- "goop_mark": "0x8000226C",
+ "goop_mark": "0x80002274",
+ "goop_mark_model": "0x800022D8",
  "set_soft": "0x800025F0",
  "goop_perform": "0x80002724",
- "smooth_rows": "0x80002A40"
+ "slot_of": "0x80002974",
+ "patch_dl": "0x80001CFC",
+ "smooth_rows": "0x80002A40",
+ "goop_model_tramp": "0x80002D00",
+ "mark_rect": "0x80002D44"
 }

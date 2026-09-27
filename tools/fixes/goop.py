@@ -5,9 +5,10 @@ livré par BetterSunshineEngine (dossier `compiler/`), lié à adresses fixes da
 trois zones libres de la caverne, puis transformé en mots [OnFrame].
 
     zone D 0x80001AE0–0x80001C00   trampoline, live
-    zone A 0x80001F20–0x80002400   goop_init, goop_mark
-    zone C 0x800025F0–0x80002A00   set_soft, goop_perform
-    zone B 0x80002A40–0x80002E40   smooth_rows, constantes
+    zone A 0x80001F20–0x80002400   goop_init, goop_mark, goop_mark_model
+    zone C 0x800025F0–0x80002A00   set_soft, goop_perform, slot_of
+    zone B 0x80002A40–0x80002E40   smooth_rows, mark_rect, trampoline modèle
+    zone E 0x80001CFC–0x80001D80   patch_dl (display lists figées)
     état   0x80002F80 goop_cfg (32 o), 0x80002FA0 goop_roots (8 pointeurs)
            — hors profil, zone nulle au démarrage ; 0x80002FFC (crochet HLE)
            n'est pas atteint.
@@ -16,6 +17,8 @@ Sites :
     0x801A0EB8  bl initTexImage              -> bl goop_init      (chargement d'une couche)
     0x801A12C8  bl TJointModel::perform      -> bl goop_perform   (chaque passage)
     0x8019ABAC  lwz r9, 8(r3) (pushTask)     -> b goop_push_tramp (chaque tampon)
+    0x8019B120  lhz r0, 0x28(r3) (pushModelStampTask)    -> b goop_model_tramp
+                (tâches modèle : zone autour du modèle tampon)
 
 Compilateur : variable d'environnement PPC_CLANG_DIR (dossier contenant
 clang.exe, ld.lld.exe, powerpc-eabi-objcopy.exe). Sans compilateur, le
@@ -39,12 +42,14 @@ REGIONS = {                         # section -> (début, fin exclue)
     ".text_a": (0x80001F20, 0x80002400),
     ".text_c": (0x800025F0, 0x80002A00),
     ".text_b": (0x80002A40, 0x80002E40),
+    ".text_e": (0x80001CFC, 0x80001D80),     # zone de soundsets, inutilisée ; poink en 0x80001D80
 }
 LDS = """
 SECTIONS {
   .text_d 0x80001AE0 : { *(.text) *(.text.live) }
-  .text_a 0x80001F20 : { *(.text.goop_init) *(.text.goop_mark) }
-  .text_c 0x800025F0 : { *(.text.set_soft) *(.text.goop_perform) }
+  .text_a 0x80001F20 : { *(.text.goop_init) *(.text.goop_mark) *(.text.goop_mark_model) }
+  .text_c 0x800025F0 : { *(.text.set_soft) *(.text.goop_perform) *(.text.slot_of) }
+  .text_e 0x80001CFC : { *(.text.patch_dl) }
   .text_b 0x80002A40 : { *(.text.smooth_rows) *(.text.*) *(.rodata*) *(.sdata2*) *(.data*) *(.sdata*) }
   /DISCARD/ : { *(.comment) *(.note*) *(.eh_frame*) *(.bss*) *(.sbss*) }
 }
@@ -55,6 +60,7 @@ SYMS = {
     "DCStoreRange": 0x803436C0,
     "JKRHeap_sCurrentHeap": 0x8040E294,
     "pushTask_resume": 0x8019ABB0,
+    "modelTask_resume": 0x8019B124,
     "goop_cfg": 0x80002F80,
     "goop_roots": 0x80002FA0,
     "memcpy": 0x800031F4,
@@ -64,6 +70,7 @@ SITES = [                           # (site, mot d'origine, symbole visé, bl ?)
     (0x801A0EB8, 0x480001FD, "goop_init", True),
     (0x801A12C8, 0x4BFE6E01, "goop_perform", True),
     (0x8019ABAC, 0x81230008, "goop_push_tramp", False),
+    (0x8019B120, 0xA0030028, "goop_model_tramp", False),   # lhz r0, 0x28(r3)
 ]
 
 
@@ -104,7 +111,8 @@ def _symbols() -> dict[str, int]:
         for line in mp.read_text().splitlines():
             parts = line.split()
             if len(parts) >= 5 and parts[-1] in ("goop_init", "goop_perform", "goop_mark",
-                                                    "goop_push_tramp", "smooth_rows", "set_soft", "live"):
+                                                    "goop_push_tramp", "smooth_rows", "set_soft", "live",
+                                                    "goop_mark_model", "goop_model_tramp", "patch_dl", "mark_rect", "slot_of"):
                 out[parts[-1]] = int(parts[0], 16)
         js.write_text(json.dumps({k: f"0x{v:08X}" for k, v in out.items()}, indent=1))
     return {k: int(v, 16) for k, v in json.loads(js.read_text()).items()}

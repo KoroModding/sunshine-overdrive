@@ -13,7 +13,12 @@
  * Mise à jour de D :
  *   - zone marquée par chaque tampon (TPollutionTexStamp::pushTask), recalculée
  *     pendant 8 passages (le GPU recopie le masque en RAM avec un peu de retard) ;
- *   - rafraîchissement de fond : 4 lignes par passage, pour tout autre écrivain.
+ *   - rafraîchissement de fond : 4 lignes par passage, pour tout autre écrivain ;
+ *   - tâches « modèle » (pushModelStampTask : vomi et gouttes de Petey,
+ *     Calmar, Mario Ombre, pollueurs…) : zone carrée autour du modèle tampon,
+ *     recalculée pendant 8 passages, renouvelée à chaque tâche (image par
+ *     image pendant l'étalement d'une flaque). Les tâches « objet articulé »
+ *     (pushJointObjStampTask) restent au rafraîchissement de fond.
  * Dolphin détecte les textures modifiées par le CPU en échantillonnant leurs
  * données (le premier mot en fait partie) : une fois par passage, les 2 bits
  * de poids faible du texel (0,0) reçoivent un compteur modulo 3, différent
@@ -26,7 +31,8 @@
  * blend SRCALPHA/INVSRCALPHA, alpha compare ref0 = 1 — seulement si le
  * matériau a exactement la signature de la goop de Bianco.
  *
- * Interrupteurs (octets en RAM, 0 = actif) : cfg.no_smooth, cfg.no_soft.
+ * Interrupteurs (octets en RAM, 0 = actif) : cfg.no_smooth, cfg.no_soft,
+ * cfg.no_model.
  */
 
 typedef unsigned char u8;
@@ -52,7 +58,7 @@ extern void *JKRHeap_sCurrentHeap;
  * Chaque Slot vit en tête du bloc alloué pour sa couche (tas du niveau) : il
  * disparaît avec le niveau. Un pointeur de goop_roots n'est suivi en écriture
  * qu'après live() : couche de pollution vivante dont le masque est le nôtre. */
-#define MAXL 8
+#define MAXL 16          /* Bianco (goop rose) : 9 couches */
 struct Slot {
     u8 *layer;          /* TPollutionLayer* */
     u8 *mask;           /* masque de gameplay */
@@ -62,11 +68,12 @@ struct Slot {
     u8 *new_arr;        /* copie rebranchée */
     u16 w, h;
     u16 cursor;
-    u16 dx0, dx1, dy0, dy1;
-    u8 dframes;
+    struct Rect { u16 x0, x1, y0, y1; u8 frames, pad; } z[2];
+                        /* zones recalculées : [0] tampons, [1] tâches modèle */
     u8 idx;
     u8 soft_on;
     u8 nonce;           /* compteur modulo 3, écrit dans le texel (0,0) */
+    u8 dl_tick;         /* contrôle des display lists figées tous les 16 passages */
 };
 struct Cfg {
     u32 magic;          /* 'GOOP' une fois initialisé au moins une fois */
@@ -77,6 +84,7 @@ struct Cfg {
     u32 last_need;
     u32 fails;
     u32 updates;
+    u8 no_model;        /* +24 : zones des tâches modèle */
 };
 extern struct Cfg goop_cfg;
 extern struct Slot *goop_roots[MAXL];
@@ -156,6 +164,36 @@ __attribute__((noinline)) static void set_soft(u8 *layer, int on)
     }
 }
 
+/* --- display lists figées ---------------------------------------------------
+ * Certaines couches (grandes couches de sol de Bianco, goop rose : relevé
+ * 2026-09-27) ont un J3DMatPacket verrouillé (+0x10 bit 0) : leur display list
+ * est construite une fois et l'adresse de texture (BP 0x94, TX_IMAGE3 map0) y
+ * est figée sur le masque. Rebrancher le J3DTexture n'y change rien : on
+ * réécrit ce mot, dans les deux tampons du J3DDisplayListObj, vers la cible
+ * (copie lissée ou masque). J3DModel +0x80 paquets (pas 0x48), paquet +0x30
+ * J3DDisplayListObj : +0 / +4 tampons.
+ * La DL commence par les commandes BP (5 octets) de la texture 0 ; relevé sur
+ * les 2 couches concernées : BP 0x94 à +5 dans les deux tampons. On ne
+ * réécrit que ce mot, et seulement s'il vaut déjà l'adresse du masque ou de
+ * la copie : toute autre structure est laissée intacte. */
+__attribute__((noinline)) static void patch_dl(struct Slot *s, u32 to)
+{
+    u8 *pk = (u8 *)RD32(RD32(s->layer + 0x28) + 0x80);   /* paquet du matériau 0 */
+    if (!(RD32(pk + 0x10) & 1))
+        return;
+    u32 vm = 0x94000000u | (((u32)s->mask & 0x1FFFFFFF) >> 5);
+    u32 vd = 0x94000000u | (((u32)s->disp & 0x1FFFFFFF) >> 5);
+    u8 *dl = (u8 *)RD32(pk + 0x30);
+    for (u32 b = 0; b < 8; b += 4) {
+        u8 *q = (u8 *)RD32(dl + b) + 5;
+        u32 v = W32(q + 1);                          /* non aligné : pris en charge */
+        if (q[0] == 0x61 && (v == vm || v == vd)) {
+            W32(q + 1) = 0x94000000u | ((to & 0x1FFFFFFF) >> 5);
+            __asm__ volatile("dcbst 0, %0" :: "r"(q) : "memory");   /* le GPU lit la RAM */
+        }
+    }
+}
+
 /* --- crochets ---------------------------------------------------------------- */
 typedef s32 (*fn_free)(void *);
 typedef void *(*fn_alloc)(void *, u32, s32);
@@ -218,7 +256,7 @@ void goop_init(u8 *layer, const char *name)
     }
     s->layer = layer; s->mask = mask; s->disp = disp; s->tex = tex;
     s->orig_arr = arr; s->new_arr = copy; s->w = (u16)w; s->h = (u16)h;
-    s->cursor = 0; s->dframes = 0; s->idx = (u8)idx; s->soft_on = 0;
+    s->cursor = 0; s->z[0].frames = 0; s->z[1].frames = 0; s->idx = (u8)idx; s->soft_on = 0; s->dl_tick = 0;
     goop_roots[free_i] = s;
     goop_cfg.nlayers++;
     smooth_rows(s, 0, h - 1, 0, w - 1);
@@ -241,13 +279,18 @@ void goop_perform(u8 *layer, u32 flags, void *gfx)
         return;
     int smooth = !goop_cfg.no_smooth;
     *(u32 *)(s->tex + 4) = (u32)(smooth ? s->new_arr : s->orig_arr);
+    if ((s->dl_tick++ & 15) == 0)
+        patch_dl(s, (u32)(smooth ? s->disp : s->mask));
     int soft = !goop_cfg.no_soft;
     if (soft != s->soft_on) { set_soft(layer, soft); s->soft_on = (u8)soft; }
     if (!smooth)
         return;
-    if (s->dframes) {
-        smooth_rows(s, s->dy0, s->dy1, s->dx0, s->dx1);
-        if (--s->dframes == 0) { s->dx0 = s->dy0 = 0xFFFF; s->dx1 = s->dy1 = 0; }
+    for (u32 k = 0; k < 2; ++k) {
+        struct Rect *z = &s->z[k];
+        if (z->frames) {
+            smooth_rows(s, z->y0, z->y1, z->x0, z->x1);
+            --z->frames;
+        }
     }
     u32 y0 = s->cursor, y1 = y0 + 3;
     if (y1 >= s->h) y1 = s->h - 1;
@@ -258,30 +301,65 @@ void goop_perform(u8 *layer, u32 flags, void *gfx)
     DCStoreRange(s->disp, 32);
 }
 
-/* appelé par le trampoline à l'entrée de TPollutionTexStamp::pushTask */
-void goop_mark(u32 idx, u32 size, u32 x, u32 z)
+/* Zone à recalculer : carré (cx, cy) ± r, borné à la couche, uni à la zone en
+ * cours si elle est encore active ; recalculée pendant 8 passages. */
+__attribute__((noinline)) static void mark_rect(struct Slot *s, struct Rect *z, s32 cx, s32 cy, s32 r)
+{
+    s32 xa = cx - r, xb = cx + r, ya = cy - r, yb = cy + r;
+    if (xa < 0) xa = 0;
+    if (ya < 0) ya = 0;
+    if (xb >= s->w) xb = s->w - 1;
+    if (yb >= s->h) yb = s->h - 1;
+    if (xa > xb || ya > yb)
+        return;
+    if (z->frames == 0) { z->x0 = z->y0 = 0xFFFF; z->x1 = z->y1 = 0; }
+    if ((u32)xa < z->x0) z->x0 = (u16)xa;
+    if ((u32)xb > z->x1) z->x1 = (u16)xb;
+    if ((u32)ya < z->y0) z->y0 = (u16)ya;
+    if ((u32)yb > z->y1) z->y1 = (u16)yb;
+    z->frames = 8;
+}
+
+static struct Slot *slot_of(u32 idx)
 {
     for (u32 i = 0; i < MAXL; ++i) {
         struct Slot *s = live(goop_roots[i]);
-        if (!s || s->idx != (idx & 0xFF))
-            continue;
-        s32 r = (s32)(size & 0xFFFF) + 2;
-        s32 xa = (s32)(x & 0xFFFF) - r, xb = (s32)(x & 0xFFFF) + r;
-        s32 ya = (s32)(z & 0xFFFF) - r, yb = (s32)(z & 0xFFFF) + r;
-        if (xa < 0) xa = 0;
-        if (ya < 0) ya = 0;
-        if (xb >= s->w) xb = s->w - 1;
-        if (yb >= s->h) yb = s->h - 1;
-        if (xa > xb || ya > yb)
-            return;
-        if (s->dframes == 0) { s->dx0 = s->dy0 = 0xFFFF; s->dx1 = s->dy1 = 0; }
-        if ((u32)xa < s->dx0) s->dx0 = (u16)xa;
-        if ((u32)xb > s->dx1) s->dx1 = (u16)xb;
-        if ((u32)ya < s->dy0) s->dy0 = (u16)ya;
-        if ((u32)yb > s->dy1) s->dy1 = (u16)yb;
-        s->dframes = 8;
-        return;
+        if (s && s->idx == (idx & 0xFF))
+            return s;
     }
+    return 0;
+}
+
+/* appelé par le trampoline à l'entrée de TPollutionTexStamp::pushTask */
+void goop_mark(u32 idx, u32 size, u32 x, u32 z)
+{
+    struct Slot *s = slot_of(idx);
+    if (s)
+        mark_rect(s, &s->z[0], x & 0xFFFF, z & 0xFFFF, (s32)(size & 0xFFFF) + 2);
+}
+
+/* appelé par le trampoline de pushModelStampTask.
+ * Zone carrée centrée sur la translation du
+ * modèle tampon (J3DModel +0x2C x, +0x4C z, échelle +0x14), rayon 400 u ×
+ * échelle — flaque de Petey mesurée à ~600 u pour l'échelle 2 (2026-09-27).
+ * Zone [1], distincte de celle des tampons : pas d'union entre deux zones
+ * éloignées. Arithmétique entière (fctiwz seulement) : aucune constante
+ * flottante en mémoire. */
+void goop_mark_model(u32 idx, u8 *model)
+{
+    struct Slot *s = slot_of(idx);
+    if (!s || goop_cfg.no_model)
+        return;
+    float *b = (float *)(s->layer + 0x38);              /* x0, x1, z0, z1 */
+    float *m = (float *)model;
+    s32 x0 = (s32)b[0], dx = (s32)b[1] - x0;
+    s32 z0 = (s32)b[2], dz = (s32)b[3] - z0;
+    if (dx <= 0 || dz <= 0)
+        return;
+    float sc = m[0x14 / 4];
+    s32 r = (s32)(sc + sc + sc + sc) * 100 * s->w / dx + 2;   /* 400 u × échelle */
+    mark_rect(s, &s->z[1], ((s32)m[0x2C / 4] - x0) * s->w / dx,
+              ((s32)m[0x4C / 4] - z0) * s->h / dz, r);
 }
 
 /* trampoline : sauve r3–r8, appelle goop_mark(r4, r5, r6, r7), rejoue la 1re
@@ -314,3 +392,29 @@ __asm__(
     "  addi 1, 1, 48\n"
     "  lwz 9, 8(3)\n"
     "  b pushTask_resume\n");
+
+/* trampoline de pushModelStampTask(r3 file, r4 indice de couche, r5
+   J3DModel*) : sauve r3–r5, appelle goop_mark_model(r4, r5), rejoue la 1re
+   instruction (lhz r0, 0x28(r3)) et y retourne. */
+__asm__(
+    ".section .text.tramp_model,\"ax\"\n"
+    ".globl goop_model_tramp\n"
+    "goop_model_tramp:\n"
+    "  stwu 1, -32(1)\n"
+    "  mflr 0\n"
+    "  stw 0, 36(1)\n"
+    "  stw 3, 8(1)\n"
+    "  stw 4, 12(1)\n"
+    "  stw 5, 16(1)\n"
+    "  mr 3, 4\n"
+    "  mr 4, 5\n"
+    "  bl goop_mark_model\n"
+    "  lwz 3, 8(1)\n"
+    "  lwz 4, 12(1)\n"
+    "  lwz 5, 16(1)\n"
+    "  lwz 0, 36(1)\n"
+    "  mtlr 0\n"
+    "  addi 1, 1, 32\n"
+    "  lhz 0, 0x28(3)\n"
+    "  b modelTask_resume\n"
+    ".previous\n");

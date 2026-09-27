@@ -34,7 +34,7 @@ without touching gameplay.
    (Windows Settings → Apps → Sunshine Overdrive).
 
 Silent install:
-`Sunshine-Overdrive-Setup-1.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES /DOLPHINDIR="C:\...\Dolphin Emulator"`.
+`Sunshine-Overdrive-Setup-1.3.0.exe /VERYSILENT /SUPPRESSMSGBOXES /DOLPHINDIR="C:\...\Dolphin Emulator"`.
 
 **Manually:**
 
@@ -157,17 +157,24 @@ modified. Instead, `goop.c`:
 
 1. when each layer loads, allocates a same-size **display copy** in the level's
    memory (16 to 64 KB, with a 512 KB free-memory guard — otherwise nothing
-   changes) and points the materials at it — gameplay keeps its own pointers to
-   the original mask;
+   changes) and points the materials at it — including the display lists some
+   layers freeze at load time (Bianco's large pink-goop floors), whose texture
+   address is rewritten in place. Gameplay keeps its own pointers to the
+   original mask;
 2. fills the copy with a **3×3 tent filter** of the mask: rounded, continuous
    outlines, with no offset;
-3. keeps it up to date: the area of each cleaning stamp immediately, plus a
-   background sweep of a few rows per frame for everything else;
-4. softens the edge (opacity ramp around the threshold, blending enabled).
+3. keeps it up to date: the area of each cleaning stamp immediately, the area
+   around each model stamp (Petey's goop puddles, Gooper Blooper, Shadow Mario…)
+   every frame while it spreads, plus a background sweep of a few rows per
+   frame for everything else;
+4. softens the edge (opacity ramp around the threshold, blending enabled) on
+   the regular brown goop; the pink goop's material differs and keeps its hard
+   (but smoothed) edge.
 
 The code is written in C, compiled for the GameCube CPU with
 BetterSunshineEngine's PowerPC clang, and injected through `[OnFrame]` like the
-rest. Measured in Bianco Hills: 5 layers, 120 frames/s, 3.9 MB still free.
+rest. Measured in Bianco Hills: 5 layers, 120 frames/s, 3.9 MB still free;
+up to 16 layers per level (the pink-goop episode has 9).
 
 ### Why `[OnFrame]` and not `[Gecko]`
 
@@ -262,7 +269,7 @@ GitHub Actions (`.github/workflows/installateur.yml`) on every `v*` tag and
 published as a Release. Locally:
 
 ```sh
-ISCC.exe /DAppVer=1.2.0 installer\SunshineOverdrive.iss     # -> dist\
+ISCC.exe /DAppVer=1.3.0 installer\SunshineOverdrive.iss     # -> dist\
 ```
 
 Detailed documentation (in French):
