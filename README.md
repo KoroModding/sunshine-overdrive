@@ -4,9 +4,18 @@
 speed.** Not a speedhack, no interpolation: the game still simulates at its
 native 120 Hz — it simply displays every simulation step instead of one in four.
 
-Bonus: **smooth goop edges**. The staircase edges of the pollution, very visible
-at high internal resolutions, are replaced with rounded, softened outlines —
-without touching gameplay.
+It also fixes:
+
+- **The infamous high-FPS music bug.** At 60 FPS and above, Sunshine's music
+  can freeze or lose its tempo. The cause is a race between the game thread and
+  the audio thread that drops the tempo flag, and it gets likelier the faster
+  the game runs. Sunshine Overdrive fixes it at the source. Audio timing is
+  corrected too: fades, the Doppler effect, sound-effect pitch and repeat
+  rates.
+- **Staircase goop edges.** The blocky edges of the pollution, very visible at
+  high internal resolutions, are replaced with rounded outlines on every goop
+  layer (brown and pink), and new goop such as Petey's puddles spreads
+  smoothly — without touching gameplay.
 
 ---
 
