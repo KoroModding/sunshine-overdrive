@@ -1,30 +1,30 @@
-"""Goop lissée : module de profil construit à partir de tools/fixes/goop/goop.c.
+"""Smoothed goop: profile module built from tools/fixes/goop/goop.c.
 
-Le code C (voir son en-tête) est compilé pour le Gekko avec le clang PowerPC
-livré par BetterSunshineEngine (dossier `compiler/`), lié à adresses fixes dans
-trois zones libres de la caverne, puis transformé en mots [OnFrame].
+The C code (see its header) is compiled for the Gekko with the PowerPC clang
+shipped by BetterSunshineEngine (`compiler/` folder), linked at fixed addresses
+into free ranges of the code cave, then turned into [OnFrame] words.
 
     zone D 0x80001AE0–0x80001C00   trampoline, live
     zone A 0x80001F20–0x80002400   goop_init, goop_mark, goop_mark_model
     zone C 0x800025F0–0x80002A00   set_soft, goop_perform, slot_of
-    zone B 0x80002A40–0x80002E40   smooth_rows, mark_rect, trampoline modèle
-    zone E 0x80001CFC–0x80001D80   patch_dl (display lists figées)
-    état   0x80002F80 goop_cfg (32 o), 0x80002FA0 goop_roots (8 pointeurs)
-           — hors profil, zone nulle au démarrage ; 0x80002FFC (crochet HLE)
-           n'est pas atteint.
+    zone B 0x80002A40–0x80002E40   smooth_rows, mark_rect, model trampoline
+    zone E 0x80001CFC–0x80001D80   patch_dl (frozen display lists)
+    state  0x80002F80 goop_cfg (32 B), 0x80002FA0 goop_roots (8 pointers)
+           outside the profile, zero at boot; 0x80002FFC (HLE hook) is not
+           reached.
 
-Sites :
-    0x801A0EB8  bl initTexImage              -> bl goop_init      (chargement d'une couche)
-    0x801A12C8  bl TJointModel::perform      -> bl goop_perform   (chaque passage)
-    0x8019ABAC  lwz r9, 8(r3) (pushTask)     -> b goop_push_tramp (chaque tampon)
+Sites:
+    0x801A0EB8  bl initTexImage              -> bl goop_init      (layer load)
+    0x801A12C8  bl TJointModel::perform      -> bl goop_perform   (every pass)
+    0x8019ABAC  lwz r9, 8(r3) (pushTask)     -> b goop_push_tramp (every stamp)
     0x8019B120  lhz r0, 0x28(r3) (pushModelStampTask)    -> b goop_model_tramp
-                (tâches modèle : zone autour du modèle tampon)
+                (model tasks: area around the stamp model)
 
-Compilateur : variable d'environnement PPC_CLANG_DIR (dossier contenant
-clang.exe, ld.lld.exe, powerpc-eabi-objcopy.exe). Sans compilateur, le
-module réutilise le dernier binaire construit (tools/fixes/goop/*.bin).
+Compiler: environment variable PPC_CLANG_DIR (folder containing clang.exe,
+ld.lld.exe, powerpc-eabi-objcopy.exe). Without a compiler, the module reuses
+the last built binary (tools/fixes/goop/*.bin).
 
-    python tools/fixes/goop.py          construit, vérifie, affiche le listing
+    python tools/fixes/goop.py          builds, checks, prints the listing
 """
 
 from __future__ import annotations
@@ -37,12 +37,12 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent / "goop"
 SRC = HERE / "goop.c"
 
-REGIONS = {                         # section -> (début, fin exclue)
+REGIONS = {                         # section -> (start, end exclusive)
     ".text_d": (0x80001AE0, 0x80001C00),
     ".text_a": (0x80001F20, 0x80002400),
     ".text_c": (0x800025F0, 0x80002A00),
     ".text_b": (0x80002A40, 0x80002E40),
-    ".text_e": (0x80001CFC, 0x80001D80),     # zone de soundsets, inutilisée ; poink en 0x80001D80
+    ".text_e": (0x80001CFC, 0x80001D80),     # unused part of the soundsets area; poink at 0x80001D80
 }
 LDS = """
 SECTIONS {
@@ -66,7 +66,7 @@ SYMS = {
     "memcpy": 0x800031F4,
     "memset": 0x80003100,
 }
-SITES = [                           # (site, mot d'origine, symbole visé, bl ?)
+SITES = [                           # (site, original word, target symbol, bl?)
     (0x801A0EB8, 0x480001FD, "goop_init", True),
     (0x801A12C8, 0x4BFE6E01, "goop_perform", True),
     (0x8019ABAC, 0x81230008, "goop_push_tramp", False),
@@ -85,7 +85,7 @@ def _tool(name: str) -> Path | None:
 def compile_() -> None:
     clang, ld, objcopy = _tool("clang.exe"), _tool("ld.lld.exe"), _tool("powerpc-eabi-objcopy.exe")
     if not (clang and ld and objcopy):
-        return                                        # binaires en cache
+        return                                        # cached binaries
     obj, elf, lds = HERE / "goop.o", HERE / "goop.elf", HERE / "goop.ld"
     lds.write_text(LDS)
     subprocess.run([str(clang), "-target", "powerpc-unknown-eabi", "-mcpu=750", "-Os",
@@ -101,8 +101,8 @@ def compile_() -> None:
 
 
 def _symbols() -> dict[str, int]:
-    """Adresses des fonctions liées : relues dans goop.map après compilation et
-    conservées dans goop_symbols.json (versionné), pour construire sans compilateur."""
+    """Linked function addresses: read from goop.map after compiling and kept in
+    goop_symbols.json (versioned), so the module builds without a compiler."""
     import json
     js = HERE / "goop_symbols.json"
     mp = HERE / "goop.map"

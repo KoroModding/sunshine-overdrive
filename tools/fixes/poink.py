@@ -1,50 +1,48 @@
-"""Poinks (TPopo, « Popo ») : ne plus exploser sur leur propre boîte de collision.
+"""Poinks (TPopo, "Popo"): no longer explode on their own collision box.
 
-Défaut (lu dans le DOL, puis mesuré le 2026-09-27 à Bianco, épisode de Petey,
-tools/watch_popo.py, profil 1324 mots, 120 images/s)
+Defect (read in the DOL, then measured on 2026-09-27 in Bianco, Petey episode,
+tools/watch_popo.py, 1324-word profile, 120 frames/s)
 =========================================================================
-Le Poink possède une seconde boîte de collision, TPopoCollision (+0x23C, son
-propriétaire en +0x68). TPopo::calcRootMatrix (0x800E7604) la place sur un
-joint du modèle, depuis les matrices de l'image PRÉCÉDENTE ; il n'est appelé
-que dans la passe d'animation de TLiveActor::perform (drapeau 0x2, avec
-MActor::frameUpdate et MActor::calc), donc une fois par image rendue.
+The Poink has a second collision box, TPopoCollision (+0x23C, its owner at
++0x68). TPopo::calcRootMatrix (0x800E7604) places it on a model joint, from
+the PREVIOUS frame's matrices; it is only called in the animation pass of
+TLiveActor::perform (flag 0x2, alongside MActor::frameUpdate and MActor::calc),
+so once per rendered frame.
 
-Au lancement (TNervePopoFly 0x800E6078), la collision du Poink et celle de la
-boîte sont coupées, puis rétablies au pas 6. Pendant le vol, dès que les deux
-se touchent, TPopo::isCollidMove (0x800E6C94) envoie le message 0 à la boîte,
-qui le relaie au Poink : réponse vraie -> nerf Explosion.
+On launch (TNervePopoFly 0x800E6078), the collision of the Poink and of the
+box are disabled, then restored at step 6. In flight, as soon as the two touch,
+TPopo::isCollidMove (0x800E6C94) sends message 0 to the box, which relays it
+to the Poink: true reply -> Explosion nerve.
 
-    mesuré à 120 FPS : boîte 150–210 u derrière le Poink (≈ 2 pas de vitesse,
-                       45–100 u/pas) ; 20 lancers : 19 explosés 7 à 10 pas
-                       (< 0,1 s) après le lancement, à 380–880 u, 1 au pas 2 ;
-                       les 8 lancers suivis par la sonde de collision : contact
-                       avec SA boîte au premier checkActorsHit après le pas 5
-    calculé à 30 FPS : même retard d'une image = 4 sous-pas de plus, soit
-                       500 u et plus : pas de contact, le Poink part au loin
+    measured at 120 FPS: box 150–210 u behind the Poink (≈ 2 speed steps,
+                         45–100 u/step); 20 throws: 19 exploded 7 to 10 steps
+                         (< 0.1 s) after launch, at 380–880 u, 1 at step 2;
+                         the 8 throws tracked by the collision probe: contact
+                         with ITS box at the first checkActorsHit after step 5
+    computed at 30 FPS:  same one-frame lag = 4 more substeps, i.e. 500 u or
+                         more: no contact, the Poink flies away
 
-Correctif
-=========
-Le contact se traite dans les deux sens, et les deux mènent à isCollidMove :
-- le Poink touche sa boîte : isCollidMove(Poink, boîte) ;
-- la boîte touche le Poink : TPopo::bind (0x800E6FC0) appelle
-  TSmallEnemy::behaveToHitOthers(Poink, Poink), qui appelle par la vtable
+Fix
+===
+Contact is handled in both directions, and both lead to isCollidMove:
+- the Poink touches its box: isCollidMove(Poink, box);
+- the box touches the Poink: TPopo::bind (0x800E6FC0) calls
+  TSmallEnemy::behaveToHitOthers(Poink, Poink), which calls through the vtable
   (+0x17C) isCollidMove(Poink, Poink).
-Première version (autre == boîte seulement) installée puis mesurée le
-2026-09-27 : aucun effet, 9 lancers sur 9 explosés au pas 7–10 par le second
-chemin.
+First version (other == box only) installed then measured on 2026-09-27: no
+effect, 9 throws out of 9 exploded at step 7–10 through the second path.
 
-0x800E6C94 mflr r0 -> b POINK : si l'acteur touché est le Poink lui-même ou sa
-boîte (autre == this ou autre == this+0x23C), renvoyer 0 (pas de collision),
-sinon reprendre la fonction. isCollidMove renvoie toujours 0 et n'agit qu'en vol : le correctif
-ne retire que l'auto-collision en vol, qui n'existe pas dans le jeu d'origine.
-r12 est volatil à l'entrée d'une fonction. Renvoyer 0 supprime aussi la
-poussée de behaveToHitOthers (+0x94), appliquée seulement sur réponse vraie.
-Les touches du Poink et de sa boîte sur les autres acteurs (Petey, Mario,
-ennemis) sont inchangées.
+0x800E6C94 mflr r0 -> b POINK: if the actor hit is the Poink itself or its box
+(other == this or other == this+0x23C), return 0 (no collision), otherwise
+resume the function. isCollidMove always returns 0 and only acts in flight:
+the fix only removes self-collision in flight, which does not exist in the
+original game. r12 is volatile on function entry. Returning 0 also removes the
+push from behaveToHitOthers (+0x94), applied only on a true reply. Hits by the
+Poink and its box on other actors (Petey, Mario, enemies) are unchanged.
 
-Mesuré après (profil 1334 mots) : vol de 54 pas (0,45 s), 4630 u, explosion
-sur TBPNavel (nombril de Petey), qui se réveille. Validé par l'auteur. Un
-seul lancer mesuré.
+Measured after (1334-word profile): 54-step flight (0.45 s), 4630 u, explosion
+on TBPNavel (Petey's navel), who wakes up. Validated by the author. Only one
+throw measured.
 """
 
 from __future__ import annotations
@@ -56,8 +54,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from build_caves import assemble, words, listing  # noqa: E402
 
-POINK = 0x80001D80             # zone de soundsets, qui s'arrête à 0x80001CF8 ;
-POINK_END = 0x80001DC0         # 0x80001CFC–0x80001DFF vérifié nul en MEM1
+POINK = 0x80001D80             # in soundsets' range, which ends at 0x80001CF8;
+POINK_END = 0x80001DC0         # 0x80001CFC–0x80001DFF checked zero in MEM1
 SITE = 0x800E6C94              # TPopo::isCollidMove, prologue
 ORIGINAL = {SITE: 0x7C0802A6}  # mflr r0
 

@@ -1,33 +1,32 @@
-"""Petey Piranha (TBossPakkun) : animation de vomissement 0x15 à la bonne vitesse.
+"""Petey Piranha (TBossPakkun): vomit animation 0x15 at the right speed.
 
-Extrait seul de tools/fixes/actors.py (groupe 5), mêmes adresses et même code,
-pour être installé indépendamment (session 7, un correctif à la fois).
+Extracted on its own from tools/fixes/actors.py (group 5), same addresses and
+same code, so it can be installed independently (session 7, one fix at a time).
 
-Défaut (lu dans le DOL)
-=======================
-TBossPakkun::changeBck (0x8009548C) règle le débit de la nouvelle animation à
-SMSGetAnmFrameRate() (0x80095594/98 : 2,0 à 30 FPS, 0,5 à 120 — correct, le
-contrôleur avançant une fois par image rendue), PUIS, pour l'animation 0x15
-seulement (0x8009559C cmpwi r31, 0x15), l'écrase par un paramètre brut :
+Defect (read in the DOL)
+========================
+TBossPakkun::changeBck (0x8009548C) sets the new animation's rate to
+SMSGetAnmFrameRate() (0x80095594/98: 2.0 at 30 FPS, 0.5 at 120; correct, as
+the controller advances once per rendered frame), THEN, for animation 0x15
+only (0x8009559C cmpwi r31, 0x15), overwrites it with a raw parameter:
     0x800955C0 lfs f31, 0x16C(param) ; 0x800955C8 bl getFrameCtrl ;
     0x800955CC stfs f31, 0xC(r3)
-calibré pour 30 FPS et jamais remis à l'échelle : à 120 FPS l'animation 0x15
-défile 4× trop vite. Or TNerveBPVomit::execute (0x8009327C) règle toute la
-phase de vomissement sur cette animation : changeBck(0x15), fenêtre de trames
-25–165 (0x800932E4 / 0x800932F0), enchaînement à curAnmEndsNext. Symptôme
-rapporté par l'auteur (2026-09-26) : « il vomit direct, pas le temps de
-remplir son estomac ».
+tuned for 30 FPS and never rescaled: at 120 FPS animation 0x15 plays 4× too
+fast. Yet TNerveBPVomit::execute (0x8009327C) times the whole vomit phase on
+this animation: changeBck(0x15), animation frame window 25–165 (0x800932E4 /
+0x800932F0), transition on curAnmEndsNext. Symptom reported by the author
+(2026-09-26): "he vomits right away, no time to fill his stomach".
 
-Correctif
-=========
-0x800955CC stfs f31, 0xC(r3) -> bl PETEY, qui stocke f31 / M (M = 2 × littéral
-0x804167B8, lu à l'exécution) : identique au jeu d'origine à 30 FPS, quel que
-soit le paramètre. changeBck est non feuille (LR sauvé au prologue) ; r12 et f0
-sont volatils et le site suit immédiatement un bl (getFrameCtrl) : aucune
-valeur vivante n'y est détruite.
+Fix
+===
+0x800955CC stfs f31, 0xC(r3) -> bl PETEY, which stores f31 / M (M = 2 ×
+literal 0x804167B8, read at run time): identical to the original game at
+30 FPS, whatever the parameter. changeBck is non-leaf (LR saved in the
+prologue); r12 and f0 are volatile and the site directly follows a bl
+(getFrameCtrl): no live value is destroyed.
 
-Écart avec BSE : BSE force 0,8 × SMSGetAnmFrameRate(), ce qui suppose le
-paramètre égal à 1,6 (NON VÉRIFIÉ) et modifie sinon le jeu à 30 FPS.
+Difference from BSE: BSE forces 0.8 × SMSGetAnmFrameRate(), which assumes the
+parameter equals 1.6 (NOT VERIFIED) and otherwise changes the game at 30 FPS.
 """
 
 from __future__ import annotations
@@ -39,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from build_caves import assemble, words, listing  # noqa: E402
 
-PETEY = 0x80002480             # même adresse que actors.py
+PETEY = 0x80002480             # same address as actors.py
 SITE = 0x800955CC
 ORIGINAL = {SITE: 0xD3E3000C}  # stfs f31, 0xC(r3)
 

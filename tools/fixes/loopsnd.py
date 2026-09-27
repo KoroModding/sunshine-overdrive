@@ -1,48 +1,47 @@
-"""Sons d'animation rejoués au rebouclage juste avant un changement d'animation.
+"""Animation sounds replayed at the loop wrap just before an animation change.
 
-Défaut (mesuré le 2026-09-28, Gatekeeper de Bianco, tools/watch_gatekeeper.py
-et une trace échantillonnée plusieurs fois par image)
+Defect (measured on 2026-09-28, Bianco Gatekeeper, tools/watch_gatekeeper.py
+and a trace sampled several times per frame)
 =========================================================================
-Signalement communauté : « le Gatekeeper crie deux fois à chaque coup ». Le
-cri 0x2891 est l'événement 0 (trame 0, sans restriction de boucle) de la
-table de sons de son animation de dégât (animation 3, 120 trames, en boucle).
+Community report: "the Gatekeeper cries twice on every hit". Cry 0x2891 is
+event 0 (animation frame 0, no loop restriction) of the sound table of its
+damage animation (animation 3, 120 animation frames, looping).
 
-    image 72048  trame 119,5 -> 0,0, drapeau « rebouclée » (02)
-    image 72049  le nerf de dégât voit la fin et passe la main au nerf
-                 suivant ; le système de sons voit le rebouclage (boucles
-                 0 -> 1) et rejoue l'événement de la trame 0 : 2e cri
-    image 72050  le nouveau nerf lance l'animation 17 (reset des sons)
+    frame 72048  animation frame 119.5 -> 0.0, "wrapped" flag (02)
+    frame 72049  the damage nerve sees the end and hands over to the next
+                 nerve; the sound system sees the loop wrap (loops 0 -> 1)
+                 and replays the animation frame 0 event: 2nd cry
+    frame 72050  the new nerve starts animation 17 (sounds reset)
 
-Deux sous-pas séparent la fin d'une animation du changement (détecter, puis
-changer). À 30 FPS, le son n'est évalué qu'une fois tous les 4 sous-pas
-(passe d'animation, drapeau 0x2) : le changement arrive toujours avant, le
-rebouclage n'est jamais vu. À 120 FPS, le son est évalué à chaque sous-pas et
-le voit. Motif générique : tout acteur qui quitte une animation en boucle à
-sa fin peut rejouer ses sons de début de boucle.
-Écarté par mesure : modules sound et soundsets (double cri présent sans eux),
-son de fonte des blobs 0x2802 (coupé : double cri présent).
+Two substeps separate the end of an animation from the change (detect, then
+change). At 30 FPS the sound is evaluated only once every 4 substeps
+(animation pass, flag 0x2): the change always comes first and the loop wrap is
+never seen. At 120 FPS the sound is evaluated every substep and sees it.
+Generic pattern: any actor that leaves a looping animation at its end can
+replay its loop-start sounds.
+Ruled out by measurement: sound and soundsets modules (double cry present
+without them), blob melt sound 0x2802 (muted: double cry present).
 
-Correctif
-=========
-JAIAnimeSound::setAnimSoundActor (0x8030019C), mode « avant » : à 0x8030038C
-(`b 0x803003A8`, entrée de la boucle de lecture des événements), détour. Si
-l'on vient de reboucler — trame préc. (+0x88) == trame courante (f30),
-compteur de boucles (+0x84) ≠ 0, index (+0x80) == départ (+0x7C), état que
-seul le chemin de rebouclage produit — la lecture est sautée pour cette
-évaluation (saut à 0x803005CC, fin normale). L'état reste prêt : à
-l'évaluation suivante, la boucle rejoue les événements de début avec une
-image de retard (8 ms), sauf si l'animation a changé entre-temps
-(initActorAnimSound remet tout à zéro) — comme à 30 FPS.
-Actif seulement au-dessus de 30 FPS (littéral 0x804167B8 > 0,5, constante
-0x80415A94) : boot, logos et jeu d'origine inchangés. Registres touchés :
-r0, r3, r12, f0, f1, cr0 — volatils, non vivants à cet endroit.
+Fix
+===
+JAIAnimeSound::setAnimSoundActor (0x8030019C), "forward" mode: at 0x8030038C
+(`b 0x803003A8`, entry of the event read loop), detour. If the loop has just
+wrapped (prev. animation frame (+0x88) == current animation frame (f30), loop
+counter (+0x84) ≠ 0, index (+0x80) == start (+0x7C), a state only the wrap
+path produces), the read is skipped for this evaluation (jump to 0x803005CC,
+normal exit). The state stays ready: on the next evaluation the loop replays
+the start events one frame late (8 ms), unless the animation changed in the
+meantime (initActorAnimSound resets everything), as at 30 FPS.
+Active only above 30 FPS (literal 0x804167B8 > 0.5, constant 0x80415A94):
+boot, logos and original game unchanged. Registers clobbered: r0, r3, r12,
+f0, f1, cr0, volatile and not live at this point.
 
-Validé en jeu par l'auteur (2026-09-28, profil 1502 mots) : un seul cri par
-coup, autres sons d'animation normaux. Validation à l'oreille, pas de relevé
-après correctif.
+Validated in game by the author (2026-09-28, 1502-word profile): a single cry
+per hit, other animation sounds normal. Validated by ear, no reading taken
+after the fix.
 
-Faux positif possible : animation figée (débit 0) exactement au départ d'une
-boucle déjà rebouclée — ses sons de début attendent qu'elle reparte.
+Possible false positive: an animation frozen (rate 0) exactly at the start of
+an already wrapped loop; its start sounds wait until it resumes.
 """
 
 from __future__ import annotations
@@ -54,13 +53,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from build_caves import assemble, words, listing  # noqa: E402
 
-CAVE = 0x80001DA4              # 0x80001DA4–0x80001DFF vérifié nul en MEM1
-CAVE_END = 0x80001E00          # widescreen commence en 0x80001E00
+CAVE = 0x80001DA4              # 0x80001DA4–0x80001DFF checked zero in MEM1
+CAVE_END = 0x80001E00          # widescreen starts at 0x80001E00
 SITE = 0x8030038C
 ORIGINAL = {SITE: 0x4800001C}  # b 0x803003A8
 PLAY_LOOP = 0x803003A8
 FUNC_END = 0x803005CC
-TARGETS = (PLAY_LOOP, FUNC_END)  # internes à setAnimSoundActor, relues au listing
+TARGETS = (PLAY_LOOP, FUNC_END)  # inside setAnimSoundActor, checked on the listing
 
 SRC = f"""
     lis    r12, 0x8041

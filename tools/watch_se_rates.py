@@ -1,22 +1,21 @@
-"""Mesure la fréquence de déclenchement de chaque effet sonore, à 30 puis 120 FPS.
+"""Measures how often each sound effect is triggered, at 30 then 120 FPS.
 
-S'appuie sur le journal posé par tools/fixes/sound.py dans
-JAIBasic::startSoundBasic (anneau de 64 entrées en 0x80002C00) et sur
-l'interrupteur de diagnostic de tools/fixes/contexts.py (0x80002BFC non nul =
-30 FPS partout). Ni l'un ni l'autre n'est écrit par le profil : ce script les
-lit et bascule l'interrupteur, rien d'autre.
+Relies on the log installed by tools/fixes/sound.py in
+JAIBasic::startSoundBasic (64-entry ring at 0x80002C00) and on the diagnostic
+switch from tools/fixes/contexts.py (0x80002BFC non-zero = 30 FPS everywhere).
+Neither is written by the profile: this script only reads them and flips the
+switch.
 
-Principe : pendant la même activité de jeu, un son déclenché par du code
-cadencé en sous-pas garde la même fréquence en déclenchements par seconde aux
-deux cadences ; un son déclenché par du code exécuté une fois par image rendue
-est déclenché ~4× plus souvent à 120 FPS. Tout rapport 120/30 hors de
-[0,5 ; 2] sur un effectif suffisant est signalé.
+Principle: for the same in-game activity, a sound triggered by code that runs
+per substep keeps the same triggers per second at both rates; a sound
+triggered by code that runs once per rendered frame fires ~4x as often at
+120 FPS. Any 120/30 ratio outside [0.5; 2] with enough samples is flagged.
 
 Usage
 -----
     python tools/watch_se_rates.py ab [secondes-par-mode]     (défaut 60)
-        mode 30 FPS puis mode 120 FPS, même durée, puis comparaison ; laisse
-        le jeu à 120 FPS. Rapport dans work/se_rates.txt
+        30 FPS mode then 120 FPS mode, same duration, then comparison; leaves
+        the game at 120 FPS. Report in work/se_rates.txt
 """
 
 from __future__ import annotations
@@ -45,7 +44,7 @@ def record(d: Dolphin, seconds: float) -> tuple[Counter, float, int]:
         new = d.u32(RING)
         n = (new - idx) % ENTRIES
         if n > ENTRIES - 8:
-            lost += 1                         # l'anneau a peut-être débordé
+            lost += 1                         # the ring may have overflowed
         for k in range(n):
             e = RING + 8 + ((idx + k) % ENTRIES) * 8
             counts[d.u32(e)] += 1

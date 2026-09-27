@@ -1,7 +1,7 @@
-"""Qui joue ce son ? Attend le démarrage d'un son donné, puis retrouve en MEM1
-l'objet de sons d'animation (JAIAnimeSound / MAnmSound, vtable en +0x94) dont
-un emplacement (8 × 0xC : +0 actif, +4 JAISound*, +8 événement*) pointe sur
-l'instance, et l'acteur qui le porte (pointeur en +0x80 d'un TLiveActor).
+"""Who plays this sound? Waits for a given sound to start, then finds in MEM1
+the animation sound object (JAIAnimeSound / MAnmSound, vtable at +0x94) with a
+slot (8 x 0xC: +0 active, +4 JAISound*, +8 event*) pointing at the instance,
+and the actor that owns it (pointer at +0x80 of a TLiveActor).
 
     python tools/who_plays.py [id-hex] [secondes]      (défaut 2832, 120)
 """

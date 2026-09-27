@@ -1,34 +1,29 @@
-"""Test de régression « chute libre » — la physique dépend-elle de la cadence ?
+"""Free-fall regression test: does physics depend on the frame rate?
 
-C'est le test le plus décisif de la batterie du plan de départ, et le seul qui
-puisse invalider d'un coup toute la démarche. Si l'accumulateur de sous-pas
-fait son travail, la simulation tourne à 120 Hz quelle que soit la cadence
-d'affichage, et **une chute doit durer exactement le même temps réel à 30 et à
-60 FPS**.
+The most decisive test of the suite, and the only one that could invalidate
+the whole approach at once. If the substep accumulator works, the simulation
+runs at 120 Hz whatever the display rate, and a fall must take exactly the same
+real time at 30 and 60 FPS. If it does not, physics is coupled to the display:
+find the cause, do not edit `TJumpParams` or the `.prm` files.
 
-Si la durée change, la physique est couplée à l'affichage. Dans ce cas —
-et le plan de départ insiste sur ce point — il ne faut surtout pas corriger en
-retouchant `TJumpParams` ou les `.prm` : c'est la cause qu'il faut chercher.
-
-Méthode
--------
-Aucune entrée manette n'est nécessaire, ce qui rend le test entièrement
-automatisable : on téléporte Mario en hauteur par écriture directe de sa
-position, puis on sonde son altitude jusqu'à ce qu'elle cesse de décroître.
+Method
+------
+No controller input is needed, so the test is fully automatic: Mario is
+teleported upward by writing his position directly, then his height is polled
+until it stops decreasing.
 
     Mario + 0x10  f32  position X
     Mario + 0x14  f32  position Y
     Mario + 0x18  f32  position Z
 
-Deux grandeurs sont relevées :
+Two quantities are measured:
 
-- **durée réelle de la chute** — doit être identique entre cadences ;
-- **nombre de valeurs distinctes de Y** — c'est le nombre d'intégrations de la
-  physique. Il doit valoir ~120 par seconde de chute dans les deux cas, ce qui
-  recoupe indépendamment la mesure de `measure_substeps.py`.
+- real fall duration: must match between rates;
+- number of distinct Y values, i.e. physics integrations: should be ~120 per
+  second of fall in both cases, an independent cross-check of
+  `measure_substeps.py`.
 
-La position d'origine est restaurée dans tous les cas, y compris en cas
-d'erreur.
+The original position is restored in all cases, including on error.
 
 Usage
 -----
@@ -50,13 +45,13 @@ from dolphin import Dolphin  # noqa: E402
 GP_MARIO = 0x8040E0E8
 OFF_POS_Y = 0x14
 
-# Au-delà de cette durée sans décroissance de Y, on considère la chute finie.
+# The fall is considered over after this long without Y decreasing.
 SETTLE_SECONDS = 0.35
 TIMEOUT_SECONDS = 15.0
 
 
 def drop(dolphin: Dolphin, mario: int, height: float) -> dict:
-    """Téléporte Mario `height` unités plus haut et mesure sa chute."""
+    """Teleport Mario `height` units up and measure the fall."""
     y_address = mario + OFF_POS_Y
     start_y = dolphin.f32(y_address)
     dolphin.write_f32(y_address, start_y + height)
@@ -83,7 +78,7 @@ def drop(dolphin: Dolphin, mario: int, height: float) -> dict:
         if now - start > TIMEOUT_SECONDS:
             break
 
-    # La chute proprement dite s'arrête au dernier instant où Y décroissait.
+    # The fall itself ends at the last instant Y was decreasing.
     duration = last_decrease - start
     descending = [s for s in samples if s[0] <= duration]
 
@@ -119,8 +114,7 @@ def _main(argv: list[str]) -> int:
         for fps in tiers:
             patch.apply(dolphin, fps, gate=False)
             time.sleep(0.6)
-            # Remettre Mario au sol avant de le relâcher, pour partir du même
-            # état dans chaque essai.
+            # Put Mario back on the ground so every drop starts from the same state.
             dolphin.write_f32(y_address, original_y)
             time.sleep(0.6)
 

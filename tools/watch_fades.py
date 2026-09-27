@@ -1,22 +1,21 @@
-"""Chronomètre en jeu les fondus JAI de la musique de fond (tools/fixes/fades.py).
+"""Times the JAI background-music fades in-game (tools/fixes/fades.py).
 
-1. **Présence** — relit en mémoire chaque mot du profil (base + fades).
-2. **Fondus** — pour chaque musique MSBgm en cours, relit les 309
-   JAIMoveParaSet de son JAISeqParameter (+0x04 … +0x1353 : tempo, données de
-   port, volume/pan/hauteur/fxmix/dolby par piste). Chaque fois qu'un compteur
-   (+0xC) passe de 0 à une valeur N, le fondu est chronométré jusqu'au retour
-   à 0.
+1. **Presence**: reads back every word of the profile (base + fades).
+2. **Fades**: for each MSBgm track playing, reads the 309 JAIMoveParaSet of
+   its JAISeqParameter (+0x04 .. +0x1353: tempo, port data,
+   volume/pan/pitch/fxmix/dolby per track). Whenever a counter (+0xC) goes
+   from 0 to some N, the fade is timed until it returns to 0.
 
-Lecture du résultat. Le compteur décroît d'une unité par passage JAI, soit
-~120/s à 120 FPS. Avec le correctif, N = 4 × la durée d'origine (en passages à
-30 Hz) et la durée réelle vaut N / 120 s = la durée d'origine. Sans lui, N est
-la valeur d'origine et le fondu dure 4× moins. Les deux colonnes utiles :
-    N           multiple de 4 attendu (le premier relevé peut manquer 1 passage)
-    durée       secondes réelles ; « N/120 » la prédit
+Reading the output. The counter drops by one per JAI pass, ~120/s at 120 FPS.
+With the fix, N = 4 * the original duration (in 30 Hz passes) and the real
+duration is N / 120 s = the original duration. Without it, N is the original
+value and the fade is 4x too short. The two useful columns:
+    N           expected to be a multiple of 4 (the first reading can miss 1 pass)
+    durée       real seconds; "N/120" predicts it
 
-Ce que l'outil NE mesure PAS : les fondus d'effets sonores (JAISeParameter,
-trop nombreux et trop brefs pour un relevé par sondage), et l'oreille. Un
-fondu de moins de ~3 passages peut être manqué entre deux lectures.
+Not measured: sound-effect fades (JAISeParameter, too many and too short for
+polling), and how it sounds. A fade shorter than ~3 passes can fall between
+two reads.
 
 Usage
 -----

@@ -1,28 +1,25 @@
-"""Horloge de sous-pas : synchroniser une mesure sur la simulation, pas sur le mur.
+"""Substep clock: time measurements against the simulation, not the wall clock.
 
-Pourquoi
---------
-Comparer deux cadences d'affichage en chronométrant à l'horloge murale est
-piégeux. Une mesure « pendant 2,5 s » ne couvre pas le même nombre d'images
-rendues à 30 et à 60 FPS, et l'injection d'entrées (voir `pad.py`) est une
-course dont le taux de réussite dépend justement du nombre d'images. Les écarts
-observés mesurent alors l'instrumentation, pas le jeu.
+Why
+---
+Comparing display rates with wall-clock timing is a trap. "For 2.5 s" does not
+cover the same number of rendered frames at 30 and 60 FPS, and input injection
+(see `pad.py`) is a race whose success rate depends on the frame count. The
+differences then measure the instrumentation, not the game.
 
-Or la simulation, elle, avance à 120 Hz constants quelle que soit la cadence.
-Indexer les mesures sur le **sous-pas** élimine donc la variable d'affichage :
-« l'état après 60 sous-pas » est une grandeur comparable entre paliers, là où
-« l'état après 0,5 s » ne l'est pas.
+The simulation runs at a constant 120 Hz whatever the rate, so indexing on
+substeps removes the display variable: "state after 60 substeps" is comparable
+between tiers, "state after 0.5 s" is not.
 
-Comment
--------
-L'accumulateur `TMarDirector + 0x54` perd exactement 5 unités par sous-pas et
-gagne `vsyncRate` au début de chaque image. Compter ses décréments compte donc
-les sous-pas, sans point d'arrêt ni hook.
+How
+---
+The accumulator at `TMarDirector + 0x54` loses exactly 5 per substep and gains
+`vsyncRate` at the start of each frame. Counting its decrements counts
+substeps, with no breakpoint or hook.
 
-Le sondage tourne à ~2,5 µs contre 2,1 ms par sous-pas : aucune transition
-n'est manquée. La méthode reste **auto-validante** — tout décrément qui ne vaut
-pas 5 signale un sondage pris en défaut, et `wait` le signale au lieu de rendre
-un compte faux.
+A poll takes ~2.5 us against 2.1 ms per substep, so no transition is missed.
+The method is self-validating: any decrement other than 5 means polling fell
+behind, and `wait` reports it instead of returning a wrong count.
 """
 
 from __future__ import annotations
@@ -41,7 +38,7 @@ QUANTUM = 5
 
 
 class SubstepClock:
-    """Compteur de sous-pas fondé sur l'accumulateur du directeur."""
+    """Substep counter based on the director's accumulator."""
 
     def __init__(self, dolphin: Dolphin) -> None:
         self.dolphin = dolphin
@@ -51,11 +48,11 @@ class SubstepClock:
         self.address = director + OFF_ACCUMULATOR
 
     def wait(self, count: int, timeout: float = 20.0) -> tuple[int, bool]:
-        """Attend `count` sous-pas.
+        """Wait for `count` substeps.
 
-        Retourne (sous-pas comptés, sondage valide). Le drapeau tombe à faux si
-        un décrément autre que 5 est observé : la mesure a alors sauté au moins
-        un sous-pas et ne doit pas être utilisée.
+        Returns (substeps counted, polling valid). The flag goes false if a
+        decrement other than 5 is seen: at least one substep was skipped and
+        the measurement must not be used.
         """
         seen = 0
         valid = True
@@ -74,11 +71,10 @@ class SubstepClock:
         return seen, valid
 
     def sample_while(self, count: int, probe, timeout: float = 20.0):
-        """Échantillonne `probe()` pendant `count` sous-pas.
+        """Sample `probe()` for `count` substeps.
 
-        Retourne (liste des valeurs, sondage valide). `probe` est appelé aussi
-        vite que possible ; le découpage temporel reste libre, seule la borne
-        de fin est synchronisée sur la simulation.
+        Returns (values, polling valid). `probe` is called as fast as possible;
+        only the end bound is synchronized with the simulation.
         """
         values = []
         seen = 0

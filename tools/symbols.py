@@ -1,37 +1,36 @@
-"""Table de symboles : lecture des fichiers .map et démangling CodeWarrior.
+"""Symbol table: .map file loading and CodeWarrior demangling.
 
-Le DOL ne contient aucun symbole. Les noms viennent de tables externes, au
-format « nom=0xADRESSE » une entrée par ligne (format des maps publiées par
-BetterSunshineEngine et Corona).
+The DOL has no symbols. Names come from external tables in "name=0xADDRESS"
+format, one entry per line (the format of the maps published by
+BetterSunshineEngine and Corona).
 
-Les noms sont manglés par CodeWarrior/MetroWerks, pas par le schéma Itanium
-(GCC/Clang) — `c++filt` ne sait donc pas les lire. Le schéma est :
+Names are mangled by CodeWarrior/MetroWerks, not the Itanium scheme
+(GCC/Clang), so `c++filt` cannot read them. The scheme is:
 
-    nom__<portée><type-de-retour-et-arguments>
+    name__<scope><return-type-and-arguments>
 
     direct__12TMarDirectorFv
-    └─ direct   nom de la méthode
-       12       longueur du nom de classe qui suit
+    └─ direct   method name
+       12       length of the class name that follows
        TMarDirector
-       F        « function », introduit la liste d'arguments
+       F        "function", starts the argument list
        v        void
 
     waitForRetrace__Q26JDrama6TVideoFUs
-       Q2       espace de noms imbriqué sur 2 niveaux
+       Q2       namespace nested 2 levels deep
        6JDrama 6TVideo
-       F Us     fonction prenant un unsigned short
+       F Us     function taking an unsigned short
 
-Le démangling implémenté ici est volontairement partiel : il vise la
-lisibilité d'un listing, pas la reconstruction exacte d'une signature C++.
-En cas de doute, le nom manglé brut est conservé.
+The demangling is deliberately partial: it aims at readable listings, not
+exact C++ signatures. When in doubt, the raw mangled name is kept.
 
-Usage en ligne de commande
---------------------------
-    python symbols.py lookup   <map> <adresse>     symbole contenant l'adresse
-    python symbols.py find     <map> <motif>       recherche par nom
-    python symbols.py demangle <nom-manglé>
+Command line
+------------
+    python symbols.py lookup   <map> <address>     symbol containing the address
+    python symbols.py find     <map> <pattern>     search by name
+    python symbols.py demangle <mangled-name>
 
-Voir docs/03-outillage.md.
+See docs/03-outillage.md.
 """
 
 from __future__ import annotations
@@ -44,7 +43,7 @@ from pathlib import Path
 
 _LINE = re.compile(r"^(?P<name>[^=\s]+)=0x(?P<address>[0-9A-Fa-f]+)\s*$")
 
-# Codes de types de base CodeWarrior rencontrés dans les signatures.
+# CodeWarrior base type codes seen in signatures.
 _BASE_TYPES = {
     "v": "void",
     "b": "bool",
@@ -75,13 +74,12 @@ class Symbol:
 
 
 class SymbolTable:
-    """Symboles triés par adresse, interrogeables par adresse ou par nom.
+    """Symbols sorted by address, queryable by address or by name.
 
-    Une map ne donne que des adresses de départ, jamais de tailles : la borne
-    supérieure d'un symbole est prise comme l'adresse du symbole suivant. Cette
-    approximation suffit pour annoter un listing mais surestime la taille du
-    dernier symbole de chaque section — ne pas s'en servir pour délimiter une
-    fonction avec certitude.
+    A map only gives start addresses, never sizes: a symbol's upper bound is
+    taken as the next symbol's address. Good enough to annotate a listing, but
+    it overestimates the last symbol of each section, so do not rely on it to
+    delimit a function with certainty.
     """
 
     def __init__(self, symbols: list[Symbol]) -> None:
@@ -91,7 +89,7 @@ class SymbolTable:
 
     @classmethod
     def load(cls, *paths: Path) -> "SymbolTable":
-        """Charge une ou plusieurs maps. En cas de conflit, la première gagne."""
+        """Load one or more maps. On conflict, the first one wins."""
         seen: dict[str, Symbol] = {}
         for path in paths:
             for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -111,17 +109,15 @@ class SymbolTable:
         return symbol.address if symbol else None
 
     def at(self, address: int) -> Symbol | None:
-        """Symbole commençant exactement à `address`."""
+        """Symbol starting exactly at `address`."""
         index = bisect.bisect_left(self._addresses, address)
         if index < len(self._symbols) and self._addresses[index] == address:
             return self._symbols[index]
         return None
 
     def containing(self, address: int) -> tuple[Symbol, int] | None:
-        """Symbole précédant `address`, avec le déplacement depuis son début.
-
-        Retourne (symbole, delta). Utile pour étiqueter une adresse au milieu
-        d'une fonction : « direct__12TMarDirectorFv+0x1C4 ».
+        """Symbol preceding `address`, as (symbol, delta) where delta is the
+        offset from its start, e.g. "direct__12TMarDirectorFv+0x1C4".
         """
         index = bisect.bisect_right(self._addresses, address) - 1
         if index < 0:
@@ -130,7 +126,7 @@ class SymbolTable:
         return symbol, address - symbol.address
 
     def label(self, address: int, demangled: bool = True) -> str:
-        """Étiquette lisible pour une adresse, ou sa forme hexadécimale."""
+        """Readable label for an address, or its hex form."""
         found = self.containing(address)
         if found is None:
             return f"0x{address:08X}"
@@ -139,8 +135,8 @@ class SymbolTable:
         return name if delta == 0 else f"{name}+0x{delta:X}"
 
     def search(self, pattern: str) -> list[Symbol]:
-        """Symboles dont le nom manglé ou démanglé contient `pattern`
-        (insensible à la casse)."""
+        """Symbols whose mangled or demangled name contains `pattern`
+        (case-insensitive)."""
         needle = pattern.lower()
         return [
             s
@@ -150,7 +146,7 @@ class SymbolTable:
 
 
 def _read_length_prefixed(text: str, pos: int) -> tuple[str, int]:
-    """Lit un identifiant préfixé par sa longueur (« 12TMarDirector »)."""
+    """Read a length-prefixed identifier ("12TMarDirector")."""
     start = pos
     while pos < len(text) and text[pos].isdigit():
         pos += 1
@@ -161,8 +157,8 @@ def _read_length_prefixed(text: str, pos: int) -> tuple[str, int]:
 
 
 def _parse_scope(text: str, pos: int) -> tuple[list[str], int]:
-    """Lit la portée : soit un identifiant simple, soit « Q<n> » suivi de n
-    identifiants imbriqués."""
+    """Read a scope: either a single identifier, or "Q<n>" followed by n
+    nested identifiers."""
     if text.startswith("Q", pos) and pos + 1 < len(text) and text[pos + 1].isdigit():
         count = int(text[pos + 1])
         pos += 2
@@ -176,15 +172,15 @@ def _parse_scope(text: str, pos: int) -> tuple[list[str], int]:
 
 
 def _parse_type(text: str, pos: int) -> tuple[str, int]:
-    """Lit un type d'argument. Gère les qualificatifs P (pointeur), R
-    (référence), C (const) et U (unsigned) qui préfixent le type de base."""
+    """Read an argument type. Handles the P (pointer), R (reference),
+    C (const) and U (unsigned) qualifiers that prefix the base type."""
     prefixes = []
     while pos < len(text) and text[pos] in "PRC":
         prefixes.append(text[pos])
         pos += 1
 
-    # « U » n'est un qualificatif que s'il précède un type entier ; sinon
-    # c'est le début d'un nom de classe préfixé par sa longueur.
+    # "U" is a qualifier only before an integer type; otherwise it starts a
+    # length-prefixed class name.
     if text.startswith("U", pos) and pos + 1 < len(text) and text[pos + 1] in "csilx":
         base = _BASE_TYPES.get(text[pos : pos + 2], text[pos : pos + 2])
         pos += 2
@@ -194,8 +190,8 @@ def _parse_type(text: str, pos: int) -> tuple[str, int]:
     else:
         parts, pos = _parse_scope(text, pos)
         base = "::".join(parts) if parts else "?"
-        # Argument de template : « TVec3<f> » se termine par le nom lui-même,
-        # déjà capturé par la longueur préfixée.
+        # Template arguments ("TVec3<f>") are part of the name itself, already
+        # covered by the length prefix.
 
     for prefix in reversed(prefixes):
         base = {"P": base + "*", "R": base + "&", "C": "const " + base}[prefix]
@@ -203,11 +199,10 @@ def _parse_type(text: str, pos: int) -> tuple[str, int]:
 
 
 def demangle(name: str) -> str:
-    """Rend lisible un symbole manglé CodeWarrior.
+    """Demangle a CodeWarrior symbol.
 
-    Retourne le nom d'origine inchangé s'il n'est pas manglé ou si l'analyse
-    échoue : un listing partiellement démanglé reste exploitable, un listing
-    faux ne l'est pas.
+    Returns the name unchanged if it is not mangled or parsing fails: a
+    partially demangled listing is still usable, a wrong one is not.
     """
     if "__" not in name:
         return name
@@ -220,20 +215,20 @@ def demangle(name: str) -> str:
         scope, pos = _parse_scope(rest, 0)
         qualified = "::".join([*scope, base]) if scope else base
 
-        # Un « C » entre la portée et le « F » marque une méthode const.
+        # A "C" between the scope and the "F" marks a const method.
         is_const = rest.startswith("CF", pos)
         if is_const:
             pos += 1
 
         if pos >= len(rest) or rest[pos] != "F":
-            # Pas de « F » : donnée membre ou symbole statique, pas une fonction.
+            # No "F": data member or static symbol, not a function.
             return qualified
 
         pos += 1
         args: list[str] = []
         while pos < len(rest):
             arg, new_pos = _parse_type(rest, pos)
-            if new_pos == pos:  # aucune progression : analyse bloquée
+            if new_pos == pos:  # no progress: parser stuck
                 return name
             args.append(arg)
             pos = new_pos

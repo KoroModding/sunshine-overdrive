@@ -1,32 +1,31 @@
-"""Vérifie les routines à état du profil et surveille la musique de fond.
+"""Check the profile's stateful routines and monitor background music.
 
-Trois contrôles, dans l'ordre :
+Three checks, in order:
 
-1. **Présence** — les mots écrits par [OnFrame] (build_caves.build()) sont
-   relus un à un en mémoire.
+1. Presence: the words written by [OnFrame] (build_caves.build()) are read
+   back from memory one by one.
 
-2. **Cadence de la couche JAI** — JAISound+0x14 est incrémenté à chaque passage
-   de JAIBasic::checkPlayingSeqTrack, donc une fois par appel de
-   MSound::mainLoop. Sa pente mesure directement la cadence audio :
-   ~120 /s au palier 120 (une fois par image : pas de limitation, voir
-   build_caves.py) ; ~30 /s signalerait une ancienne routine audio encore posée.
+2. JAI layer rate: JAISound+0x14 is incremented on every pass through
+   JAIBasic::checkPlayingSeqTrack, i.e. once per MSound::mainLoop call. Its
+   slope is the audio update rate: ~120/s at the 120 tier (once per frame, no
+   throttling, see build_caves.py); ~30/s would mean an old audio routine is
+   still installed.
 
-3. **Santé de la séquence** — pour chaque racine JASystem active : tempo
-   effectif (TTrack+0x3B0), multiplicateur externe (TOuterParam+0x18) et
-   minuteurs d'attente des pistes filles. Une racine dont le tempo vaut 0 et
-   dont les minuteurs ne bougent plus est figée : c'est le symptôme de la
-   musique muette.
+3. Sequence health: for each active JASystem root track, effective tempo
+   (TTrack+0x3B0), outer multiplier (TOuterParam+0x18) and the child tracks'
+   wait timers. A root with tempo 0 and timers that no longer move is frozen:
+   that is the silent-music symptom.
 
-Offsets tirés de la décompilation Graffito-Decomp (JAISound.hpp, JASTrack.hpp,
-JAIParameters.hpp) et recoupés en mémoire le 2026-09-22.
+Offsets from the Graffito-Decomp decompilation (JAISound.hpp, JASTrack.hpp,
+JAIParameters.hpp), cross-checked in memory on 2026-09-22.
 
 Usage
 -----
-    python tools/watch_audio.py [durée-en-secondes]     (défaut 600)
-    python tools/watch_audio.py --suivi [journal]       surveillance longue :
-        survit aux changements de niveau et aux redémarrages du jeu, note chaque
-        musique rencontrée (id JAI, piste MSBgm) et chaque gel ; s'arrête avec
-        Ctrl+C ou la fin du processus. Journal par défaut : work/suivi_audio.log
+    python tools/watch_audio.py [durée-en-secondes]     (default 600)
+    python tools/watch_audio.py --suivi [journal]       long-running monitor:
+        survives level changes and game restarts, logs every music track seen
+        (JAI id, MSBgm track) and every freeze; stops on Ctrl+C or when the
+        process ends. Default log: work/suivi_audio.log
 """
 
 from __future__ import annotations
@@ -40,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from build_caves import build  # noqa: E402
 from dolphin import Dolphin  # noqa: E402
 
-SM_BGM_IN_TRACK = 0x803E9C80    # MSBgm::smBgmInTrack[] — MSBgm*, handle JAISound* à +0x14
+SM_BGM_IN_TRACK = 0x803E9C80    # MSBgm::smBgmInTrack[]: MSBgm*, JAISound* handle at +0x14
 ROOT_TRACKS = 0x8040E6C0        # JASystem::TrackMgr::sRootTrack
 ROOT_COUNT = 0x8040E6C8         # JASystem::TrackMgr::sRootSeqCount
 
@@ -106,7 +105,7 @@ def main(argv: list[str]) -> int:
             if i in frozen_since and now - frozen_since[i] >= 3.0:
                 print(f"  FIGÉE  racine {i} : tempo {r['tempo']:.4f}, multiplicateur "
                       f"{r['outer']}, minuteurs {r['waits']}")
-                frozen_since[i] = float("inf")   # ne signaler qu'une fois
+                frozen_since[i] = float("inf")   # report only once
             previous[i] = r["waits"]
         time.sleep(1.0)
     print("Fin. Aucune ligne FIGÉE ci-dessus = aucune séquence bloquée pendant la fenêtre.")
@@ -114,7 +113,7 @@ def main(argv: list[str]) -> int:
 
 
 def bgm_ids(d: Dolphin) -> dict[int, int]:
-    """{piste MSBgm: id du son} pour les musiques de fond en cours."""
+    """{MSBgm track: sound id} for the background music currently playing."""
     out = {}
     for track in range(8):
         bgm = d.u32(SM_BGM_IN_TRACK + 4 * track)
@@ -168,7 +167,7 @@ def follow(log_path: Path) -> int:
                 time.sleep(1.0)
         except KeyboardInterrupt:
             break
-        except Exception as exc:          # jeu arrêté, relancé, MEM1 déplacée
+        except Exception as exc:          # game stopped or restarted, MEM1 moved
             log(f"Jeu indisponible ({type(exc).__name__}) ; nouvelle tentative dans 5 s. "
                 f"Musiques vues jusqu'ici : {len(seen)}")
             time.sleep(5.0)

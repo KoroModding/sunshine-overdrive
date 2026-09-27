@@ -1,8 +1,8 @@
 name: Installateur Windows
 
-# Construit Sunshine-Overdrive-Setup-<version>.exe avec Inno Setup 6.7.3.
-# - tag v* : publie le Setup.exe dans une Release GitHub ;
-# - lancement manuel : Setup.exe disponible en artefact du workflow.
+# Builds Sunshine-Overdrive-Setup-<version>.exe with Inno Setup 6.7.3.
+# - v* tag: publishes Setup.exe in a GitHub Release;
+# - manual run: Setup.exe available as a workflow artifact.
 
 on:
   push:

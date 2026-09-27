@@ -1,36 +1,35 @@
-"""Lecture d'un exécutable DOL GameCube : sections, adresses, désassemblage.
+"""Read a GameCube DOL executable: sections, addresses, disassembly.
 
-Un DOL est un format de chargement minimal : une table de 18 sections
-(7 « text » exécutables, 11 « data ») plus une zone BSS, sans relocations et
-sans table de symboles. Chaque section porte son offset dans le fichier, son
-adresse de chargement en mémoire virtuelle et sa taille.
+A DOL is a minimal load format: a table of 18 sections (7 executable "text",
+11 "data") plus a BSS area, with no relocations and no symbol table. Each
+section has a file offset, a virtual load address and a size.
 
-En-tête DOL (0x100 octets, big-endian)
---------------------------------------
-    0x00  u32[7]   offsets fichier des sections text
-    0x1C  u32[11]  offsets fichier des sections data
-    0x48  u32[7]   adresses de chargement des sections text
-    0x64  u32[11]  adresses de chargement des sections data
-    0x90  u32[7]   tailles des sections text
-    0xAC  u32[11]  tailles des sections data
-    0xD8  u32      adresse du BSS
-    0xDC  u32      taille du BSS
-    0xE0  u32      point d'entrée
+DOL header (0x100 bytes, big-endian)
+------------------------------------
+    0x00  u32[7]   file offsets of the text sections
+    0x1C  u32[11]  file offsets of the data sections
+    0x48  u32[7]   load addresses of the text sections
+    0x64  u32[11]  load addresses of the data sections
+    0x90  u32[7]   sizes of the text sections
+    0xAC  u32[11]  sizes of the data sections
+    0xD8  u32      BSS address
+    0xDC  u32      BSS size
+    0xE0  u32      entry point
 
-Le DOL n'ayant aucun symbole, toute correspondance adresse -> fonction vient
-d'une source externe (voir tools/symbols.py). Ce module ne manipule que des
-adresses brutes, ce qui le rend indépendant de la région du jeu.
+The DOL has no symbols, so any address -> function mapping comes from an
+external source (see tools/symbols.py). This module only deals with raw
+addresses, which keeps it region-independent.
 
-Usage en ligne de commande
---------------------------
+Command line
+------------
     python dol.py sections <dol>
-    python dol.py read     <dol> <adresse> [nb-octets]
-    python dol.py dis      <dol> <adresse> [nb-instructions]
-    python dol.py f32      <dol> <adresse> [nb-flottants]
-    python dol.py find     <dol> <octets-hex>       recherche un motif
-    python dol.py findf32  <dol> <valeur>           recherche un flottant
+    python dol.py read     <dol> <address> [num-bytes]
+    python dol.py dis      <dol> <address> [num-instructions]
+    python dol.py f32      <dol> <address> [num-floats]
+    python dol.py find     <dol> <hex-bytes>        search for a pattern
+    python dol.py findf32  <dol> <value>            search for a float
 
-Voir docs/03-outillage.md.
+See docs/03-outillage.md.
 """
 
 from __future__ import annotations
@@ -47,12 +46,12 @@ NUM_SECTIONS = NUM_TEXT + NUM_DATA
 
 @dataclass(frozen=True)
 class Section:
-    """Une section chargée du DOL."""
+    """A loaded DOL section."""
 
     index: int
-    kind: str  # « text » ou « data »
+    kind: str  # "text" or "data"
     file_offset: int
-    address: int  # adresse virtuelle de chargement
+    address: int  # virtual load address
     size: int
 
     @property
@@ -64,7 +63,7 @@ class Section:
 
 
 class Dol:
-    """Un exécutable DOL chargé en mémoire, adressable par adresse virtuelle."""
+    """A DOL executable loaded in memory, addressable by virtual address."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -83,8 +82,7 @@ class Dol:
                 size=sizes[i],
             )
             for i in range(NUM_SECTIONS)
-            # Une section de taille nulle est un emplacement inutilisé de la
-            # table, pas une section vide : on l'écarte.
+            # A zero size marks an unused table slot, not an empty section.
             if sizes[i]
         ]
 
@@ -92,17 +90,14 @@ class Dol:
             ">III", self.data, 0xD8
         )
 
-    # -- correspondance adresse virtuelle <-> offset fichier ----------------
-
     def section_of(self, address: int) -> Section | None:
-        """Section contenant `address`, ou None si l'adresse n'est pas chargée."""
+        """Section containing `address`, or None if the address is not loaded."""
         for section in self.sections:
             if section.contains(address):
                 return section
         return None
 
     def to_file_offset(self, address: int) -> int:
-        """Convertit une adresse virtuelle en offset dans le fichier DOL."""
         section = self.section_of(address)
         if section is None:
             in_bss = self.bss_address <= address < self.bss_address + self.bss_size
@@ -114,8 +109,6 @@ class Dol:
             )
             raise ValueError(f"adresse 0x{address:08X} hors des sections du DOL{hint}")
         return section.file_offset + (address - section.address)
-
-    # -- lectures typées ---------------------------------------------------
 
     def read(self, address: int, length: int) -> bytes:
         start = self.to_file_offset(address)
@@ -130,11 +123,9 @@ class Dol:
     def f64(self, address: int) -> float:
         return struct.unpack(">d", self.read(address, 8))[0]
 
-    # -- recherche ---------------------------------------------------------
-
     def find(self, pattern: bytes, kind: str | None = None) -> list[int]:
-        """Adresses virtuelles où `pattern` apparaît, éventuellement restreint
-        aux sections de type `kind` (« text » ou « data »)."""
+        """Virtual addresses where `pattern` occurs, optionally restricted to
+        sections of type `kind` ("text" or "data")."""
         hits: list[int] = []
         for section in self.sections:
             if kind and section.kind != kind:
@@ -147,19 +138,17 @@ class Dol:
         return hits
 
     def find_f32(self, value: float) -> list[int]:
-        """Adresses alignées sur 4 octets contenant exactement `value` en f32."""
+        """4-byte aligned addresses holding exactly `value` as an f32."""
         pattern = struct.pack(">f", value)
         return [a for a in self.find(pattern, kind="data") if a % 4 == 0]
 
-    # -- désassemblage -----------------------------------------------------
-
     def disassemble(self, address: int, count: int = 16):
-        """Désassemble `count` instructions à partir de `address`.
+        """Disassemble `count` instructions starting at `address`.
 
-        Retourne une liste de tuples (adresse, octets, mnémonique, opérandes).
-        Capstone ne connaît pas les instructions « paired single » du Gekko
-        (psq_l, ps_madd…) : celles-ci ressortent en « .long » plutôt que de
-        faire échouer le désassemblage.
+        Returns a list of (address, bytes, mnemonic, operands) tuples.
+        Capstone does not know the Gekko paired-single instructions
+        (psq_l, ps_madd...): they come out as ".long" instead of aborting the
+        disassembly.
         """
         from capstone import CS_ARCH_PPC, CS_MODE_32, CS_MODE_BIG_ENDIAN, Cs
 

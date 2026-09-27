@@ -1,39 +1,38 @@
-"""Application réversible des correctifs de framerate à un Dolphin en cours.
+"""Reversible application of the frame rate fixes to a running Dolphin.
 
-Écrit directement dans la MEM1 émulée. Chaque correctif enregistre la valeur
-d'origine et sait la restaurer, ce qui permet d'enchaîner des mesures à
-plusieurs cadences sans relancer le jeu.
+Writes directly into emulated MEM1. Each fix records the original value and
+can restore it, so measurements at several frame rates can be chained without
+restarting the game.
 
-Ce que ce module NE fait PAS
+What this module does NOT do
 ----------------------------
-Il n'applique **aucune** des corrections d'objets (boids, boss, transitions,
-fondus) recensées dans le plan de départ. Il ne pose que les deux écritures qui
-définissent la cadence elle-même, plus le littéral `TModelGate` à titre
-expérimental. C'est délibéré : l'objet est de mesurer le socle, pas de livrer
-un mod jouable.
+It applies **none** of the per-object fixes (boids, bosses, transitions,
+fades) listed in the initial plan. It only makes the two writes that define
+the frame rate itself, plus the `TModelGate` literal as an experiment. This is
+deliberate: the goal is to measure the foundation, not ship a playable mod.
 
-Le piège du cache JIT — et pourquoi on n'utilise pas le `nop`
--------------------------------------------------------------
-Dolphin compile le code PowerPC en code natif et met les blocs en cache. Une
-écriture externe dans une **instruction** reste sans effet tant que le bloc
-concerné n'est pas recompilé, alors qu'une écriture dans une **donnée** prend
-effet immédiatement puisque le jeu la relit à chaque exécution.
+The JIT cache trap -- and why the `nop` is not used
+---------------------------------------------------
+Dolphin compiles PowerPC code to native code and caches the blocks. An
+external write to an **instruction** has no effect until the block is
+recompiled, whereas a write to **data** takes effect immediately since the
+game rereads it every time.
 
-Mesuré le 2026-09-15 : écrire `nop` en `0x802FCB24` modifie bien la MEM1
-émulée (relecture confirmée) mais **ne change rien au comportement** — le jeu
-continue de présenter 30 images par seconde. Le bloc JIT compilé l'emporte.
+Measured 2026-09-15: writing `nop` at `0x802FCB24` does change emulated MEM1
+(confirmed by reading back) but **changes nothing in behavior** -- the game
+keeps presenting 30 frames per second. The compiled JIT block wins.
 
-Ce module contourne l'obstacle en n'écrivant que des **données** :
+This module works around it by writing **data** only:
 
-    0x804167B8        littéral f32   horloge logique + cadence d'animation
-    TDisplay + 0x4C   u16            mRetraceCount, champs par présentation
+    0x804167B8        f32 literal    logic clock + animation rate
+    TDisplay + 0x4C   u16            mRetraceCount, fields per present
 
-`mRetraceCount = 1` produit exactement le même effet que le `nop` de
-`gamemasterplc` (démontré dans docs/01-mecanismes.md § 3.1), sans toucher une
-seule instruction. C'est aussi la voie que prend BetterSunshineEngine.
+`mRetraceCount = 1` has exactly the same effect as `gamemasterplc`'s `nop`
+(shown in docs/01-mecanismes.md section 3.1) without touching a single
+instruction. It is also the route BetterSunshineEngine takes.
 
-`TDisplay` est atteint par `gpApplication + 0x1C`, résolu à chaque appel :
-l'objet est alloué sur le tas, son adresse change d'une session à l'autre.
+`TDisplay` is reached through `gpApplication + 0x1C`, resolved on every call:
+the object is heap-allocated and its address changes between sessions.
 
 Usage
 -----
@@ -53,21 +52,20 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from dolphin import Dolphin  # noqa: E402
 
-# Fichier de sauvegarde des valeurs d'origine. Persister sur disque permet de
-# restaurer même après l'arrêt du script qui a appliqué le correctif.
+# Original values are persisted on disk so they can be restored even after the
+# script that applied the fix has exited.
 BACKUP = Path(__file__).parent.parent / "work" / "patch-backup.json"
 
-LITERAL_VSYNC = 0x804167B8  # 0.5f — horloge logique et cadence d'animation
-LITERAL_GATE = 0x80414904  # 0.01f — fondu TModelGate
+LITERAL_VSYNC = 0x804167B8  # 0.5f -- logic clock and animation rate
+LITERAL_GATE = 0x80414904  # 0.01f -- TModelGate fade
 
-GP_APPLICATION = 0x803E9700  # gpApplication EST l'objet, pas un pointeur vers lui
+GP_APPLICATION = 0x803E9700  # gpApplication IS the object, not a pointer to it
 OFF_DISPLAY = 0x1C  # TApplication::mDisplay
 OFF_RETRACE_COUNT = 0x4C  # JDrama::TDisplay::mRetraceCount (u16)
 
-# Valeurs par palier. Le littéral vaut `cadence / 60` : c'est lui qui fixe à la
-# fois le retour de SMSGetVSyncTimesPerSec et, par ricochet, le nombre de
-# sous-pas par image (600 / cadence). `retrace_count` fixe le nombre de champs
-# VI consommés par image présentée.
+# Per-tier values. The literal is `rate / 60`: it sets both the return value of
+# SMSGetVSyncTimesPerSec and, in turn, the number of substeps per frame
+# (600 / rate). `retrace_count` sets the VI fields consumed per presented frame.
 PROFILES = {
     30: {"literal": 0.5, "retrace_count": 2, "gate": 0.01},
     60: {"literal": 1.0, "retrace_count": 1, "gate": 0.02},
@@ -76,7 +74,7 @@ PROFILES = {
 
 
 def display_address(dolphin: Dolphin) -> int:
-    """Adresse de l'objet `JDrama::TDisplay`, résolue à chaque appel."""
+    """Address of the `JDrama::TDisplay` object, resolved on every call."""
     display = dolphin.u32(GP_APPLICATION + OFF_DISPLAY)
     if not dolphin.is_valid_pointer(display):
         raise RuntimeError(
@@ -94,7 +92,7 @@ def read_state(dolphin: Dolphin) -> dict:
 
 
 def save_original(dolphin: Dolphin) -> dict:
-    """Enregistre l'état d'origine, une seule fois."""
+    """Record the original state, once."""
     if BACKUP.exists():
         return json.loads(BACKUP.read_text())
     state = read_state(dolphin)
@@ -104,7 +102,7 @@ def save_original(dolphin: Dolphin) -> dict:
 
 
 def apply(dolphin: Dolphin, fps: int, gate: bool = True) -> dict:
-    """Applique un palier. Retourne l'état relu après écriture."""
+    """Apply a tier. Returns the state read back after writing."""
     if fps not in PROFILES:
         raise ValueError(f"palier inconnu : {fps} (attendu {sorted(PROFILES)})")
     save_original(dolphin)
@@ -121,7 +119,7 @@ def apply(dolphin: Dolphin, fps: int, gate: bool = True) -> dict:
 
 
 def restore(dolphin: Dolphin) -> dict:
-    """Remet les valeurs d'origine relevées au premier `apply`."""
+    """Restore the original values recorded on the first `apply`."""
     if not BACKUP.exists():
         raise RuntimeError("aucune sauvegarde : rien à restaurer")
     original = json.loads(BACKUP.read_text())

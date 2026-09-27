@@ -1,15 +1,14 @@
-"""Journal image par image de l'état de Mario, pour comparer une même action à
-30 FPS (jeu d'origine) et à 120 FPS (profil) : glissade murale, propulsions,
-etc.
+"""Frame-by-frame log of Mario's state, to compare the same action at 30 FPS
+(original game) and 120 FPS (profile): wall slide, hover boosts, etc.
 
-Chaque ligne : temps réel, compteur d'images (JAIBasic::basic → +0x20, un par
-image rendue), action (+0x7C), sous-état (+0x84), minuteur (+0x86), vitesse
-(+0xA4 x/y/z), vitesse avant (+0xB0), position (+0x10 x/y/z). Une ligne n'est
-écrite que si l'image a changé.
+Each line: real time, frame counter (JAIBasic::basic -> +0x20, one per rendered
+frame), action (+0x7C), substate (+0x84), timer (+0x86), velocity
+(+0xA4 x/y/z), forward speed (+0xB0), position (+0x10 x/y/z). A line is only
+written when the frame has changed.
 
-En fin d'enregistrement, un résumé par action : durée cumulée, vitesse
-verticale moyenne en unités par SECONDE (déplacement de position / temps
-d'images, indépendant de la cadence) et vitesse horizontale moyenne.
+At the end, a summary per action: total duration, mean vertical speed in units
+per SECOND (position delta / frame time, independent of the frame rate) and
+mean horizontal speed.
 
     python tools/watch_mario.py <étiquette> [secondes]     (défaut 300)
         journal dans work/mario-<étiquette>.log
@@ -41,8 +40,8 @@ def main(argv: list[str]) -> int:
     d = Dolphin()
     jai = d.u32(JAI_BASIC) + 0x20
     log_path = WORK / f"mario-{label}.log"
-    fps = 30.0 * 2 * d.f32(LIT)          # images rendues par seconde attendues
-    stats: dict[int, list[float]] = defaultdict(lambda: [0, 0.0, 0.0])  # images, dy, dxz
+    fps = 30.0 * 2 * d.f32(LIT)          # expected rendered frames per second
+    stats: dict[int, list[float]] = defaultdict(lambda: [0, 0.0, 0.0])  # frames, dy, dxz
     last_f, last_p, last_a = None, None, None
     t0 = time.perf_counter()
     with log_path.open("w", encoding="utf-8") as log:

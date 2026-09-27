@@ -1,54 +1,53 @@
-"""Pilotage de l'hôte Dolphin : save states et relance avec configuration.
+"""Driving the Dolphin host: save states and relaunch with configuration.
 
-Pourquoi ce module existe
--------------------------
-Le palier 120 FPS exige que le VI émulé délivre plus de 59,94 champs par
-seconde. C'est le réglage **VBI Frequency Override** de Dolphin
-(`Dolphin.Core.VIOverclock`). Or ce réglage vit dans l'hôte, pas dans la MEM1 :
-aucune écriture mémoire ne l'atteint, et Dolphin ne relit pas son fichier de
-configuration en cours de partie.
+Why this module exists
+----------------------
+The 120 FPS tier needs the emulated VI to deliver more than 59.94 fields per
+second. That is Dolphin's **VBI Frequency Override** setting
+(`Dolphin.Core.VIOverclock`). It lives in the host, not in MEM1: no memory
+write reaches it, and Dolphin does not reread its config file mid-game.
 
-La seule voie qui ne demande rien à personne est donc : sauvegarder l'état,
-relancer Dolphin avec le réglage passé en ligne de commande, recharger l'état.
+The only route that needs nobody's help is: save state, relaunch Dolphin with
+the setting passed on the command line, reload the state.
 
-Ce que la ligne de commande de Dolphin offre
---------------------------------------------
-Relevé dans le binaire (`Dolphin.exe`) :
+Dolphin command line
+--------------------
+Read from the binary (`Dolphin.exe`):
 
-    --exec / -e        <chemin>                       image à lancer
-    --save_state / -s  <chemin>                       état à charger au démarrage
+    --exec / -e        <chemin>                       image to launch
+    --save_state / -s  <chemin>                       state to load on startup
     --config / -C      <Système>.<Section>.<Clé>=<Valeur>
 
-Les clés utiles :
+Relevant keys:
 
     Dolphin.Core.VIOverclockEnable = True
     Dolphin.Core.VIOverclock       = 2.0
 
-`-C` alimente une couche « ligne de commande » qui **n'est pas écrite** dans
-`Dolphin.ini` : relancer sans l'option suffit à revenir à l'état initial, la
-configuration de l'utilisateur n'est jamais modifiée.
+`-C` feeds a "command line" config layer that is **not written** to
+`Dolphin.ini`: relaunching without the option restores the initial state; the
+user's configuration is never modified.
 
-La sauvegarde d'état — impasse constatée
-----------------------------------------
-Dolphin ne sait pas créer un état depuis la ligne de commande : il faut lui
-envoyer son raccourci (Maj+F1 par défaut). Ses entrées passant par DirectInput,
-un `PostMessage` ne suffit pas — il faut une injection au niveau du système
-(`SendInput`), donc donner brièvement le focus à sa fenêtre.
+Saving state -- dead end
+------------------------
+Dolphin cannot create a state from the command line: it has to receive its
+hotkey (Shift+F1 by default). Its input goes through DirectInput, so
+`PostMessage` is not enough -- it needs system-level injection (`SendInput`),
+hence briefly giving focus to its window.
 
-**Cette voie ne fonctionne pas depuis un agent en ligne de commande.** Mesuré
-le 2026-09-15 : `SendInput` n'atteint pas le bureau interactif depuis ce
-contexte — même `GetAsyncKeyState`, appelé dans le processus qui vient
-d'injecter la frappe, ne la voit pas. Ni le focus forcé, ni le choix de la
-fenêtre (rendu ou principale) n'y changent quoi que ce soit.
+**This does not work from a command-line agent.** Measured 2026-09-15:
+`SendInput` does not reach the interactive desktop from this context -- even
+`GetAsyncKeyState`, called in the process that just injected the keystroke,
+does not see it. Neither forced focus nor the choice of window (render or
+main) changes anything.
 
-`savestate` est conservé parce qu'il redevient utilisable dans une session
-lancée à la main par l'utilisateur, et parce qu'il rapporte honnêtement son
-échec plutôt que de le masquer. Mais rien dans le projet ne doit en dépendre.
+`savestate` is kept because it works again in a session started by hand by
+the user, and because it reports its failure instead of hiding it. Nothing in
+the project may depend on it.
 
-La voie qui a fonctionné pour le même besoin est
-[`second_instance.py`](second_instance.py) : une instance isolée, pilotée par
-la même injection mémoire que le reste du projet, qui ne dépend d'aucun
-clavier.
+The route that worked for the same need is
+[`second_instance.py`](second_instance.py): an isolated instance, driven by
+the same memory injection as the rest of the project, with no keyboard
+dependency.
 
 Usage
 -----
@@ -66,10 +65,10 @@ import sys
 import time
 from pathlib import Path
 
-# Chemins locaux : variables d'environnement, sinon valeurs par défaut.
-#   DOLPHIN_EXE       exécutable de Dolphin            (défaut : « Dolphin.exe » dans le PATH)
-#   DOLPHIN_USER_DIR  répertoire utilisateur de Dolphin (défaut : %APPDATA%/Dolphin Emulator)
-#   SMS_ISO           image du jeu GMSE01              (défaut : aucun, à fournir)
+# Local paths come from environment variables, else defaults:
+#   DOLPHIN_EXE       Dolphin executable      (default: "Dolphin.exe" on PATH)
+#   DOLPHIN_USER_DIR  Dolphin user directory  (default: %APPDATA%/Dolphin Emulator)
+#   SMS_ISO           GMSE01 game image       (no default, must be provided)
 _APPDATA = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
 DOLPHIN_EXE = Path(os.environ.get("DOLPHIN_EXE", "Dolphin.exe"))
 USER_DIR = Path(os.environ.get("DOLPHIN_USER_DIR", _APPDATA / "Dolphin Emulator"))
@@ -102,14 +101,14 @@ class INPUT(ctypes.Structure):
 
 
 def force_foreground(hwnd: int) -> bool:
-    """Donne le focus à `hwnd` malgré le verrou de premier plan de Windows.
+    """Give focus to `hwnd` despite the Windows foreground lock.
 
-    Windows refuse `SetForegroundWindow` à un processus qui n'est pas déjà au
-    premier plan — mesuré ici : l'appel direct renvoie 0 et ne change rien.
-    La parade classique est de rattacher temporairement la file d'entrée du
-    thread appelant à celle du thread propriétaire de la fenêtre active, ce qui
-    fait considérer les deux comme un même « contexte d'entrée » et lève la
-    restriction. Le rattachement est défait aussitôt après.
+    Windows refuses `SetForegroundWindow` to a process that is not already in
+    the foreground -- measured here: the direct call returns 0 and does
+    nothing. The usual workaround is to temporarily attach the calling
+    thread's input queue to the thread owning the active window, so both
+    count as one "input context" and the restriction is lifted. The
+    attachment is undone right after.
     """
     current = _user32.GetForegroundWindow()
     if current == hwnd:
@@ -142,7 +141,7 @@ def _send_key(vk: int, up: bool) -> None:
 
 
 def find_window(pid: int) -> int | None:
-    """Fenêtre principale visible du processus `pid`."""
+    """Main visible window of process `pid`."""
     found: list[tuple[int, str]] = []
 
     @ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
@@ -160,8 +159,8 @@ def find_window(pid: int) -> int | None:
     _user32.EnumWindows(callback, 0)
     if not found:
         return None
-    # La fenêtre de rendu est celle dont le titre porte l'identifiant du jeu ;
-    # les autres (liste de jeux, boîtes de réglages) n'ont pas les raccourcis.
+    # The render window is the one whose title carries the game ID; the others
+    # (game list, settings dialogs) do not receive hotkeys.
     for hwnd, title in found:
         if "(" in title and ")" in title and "|" in title:
             return hwnd
@@ -181,9 +180,9 @@ def dolphin_pid() -> int | None:
 
 
 def save_state(slot: int = 1, timeout: float = 12.0) -> Path | None:
-    """Déclenche Maj+F<slot> dans Dolphin et attend l'apparition du fichier.
+    """Send Shift+F<slot> to Dolphin and wait for the state file to appear.
 
-    Retourne le chemin de l'état créé, ou None si rien n'est apparu.
+    Returns the path of the created state, or None if nothing appeared.
     """
     pid = dolphin_pid()
     if pid is None:
@@ -220,7 +219,7 @@ def save_state(slot: int = 1, timeout: float = 12.0) -> Path | None:
 
     if previous_focus:
         _user32.SetForegroundWindow(previous_focus)
-    # Laisser Dolphin finir d'écrire le fichier avant de le déclarer utilisable.
+    # Let Dolphin finish writing the file before declaring it usable.
     time.sleep(1.0)
     return result
 
@@ -238,7 +237,7 @@ def kill_dolphin(timeout: float = 15.0) -> None:
 
 def launch(iso: Path, state: Path | None = None,
            vi_overclock: float | None = None) -> int:
-    """Relance Dolphin, éventuellement avec un overclock VI et un état à charger."""
+    """Relaunch Dolphin, optionally with a VI overclock and a state to load."""
     command = [str(DOLPHIN_EXE), "-e", str(iso)]
     if state is not None:
         command += ["-s", str(state)]
@@ -259,9 +258,9 @@ def launch(iso: Path, state: Path | None = None,
 
 
 def wait_for_game(timeout: float = 90.0):
-    """Attend que la MEM1 soit localisable et qu'un niveau soit chargé."""
+    """Wait until MEM1 can be located and a level is loaded."""
     sys.path.insert(0, str(Path(__file__).parent))
-    from dolphin import Dolphin  # import tardif : le processus doit exister
+    from dolphin import Dolphin  # late import: the process must exist
 
     deadline = time.perf_counter() + timeout
     while time.perf_counter() < deadline:
@@ -294,9 +293,8 @@ def _main(argv: list[str]) -> int:
         return 1
 
     if argv[1] == "relaunch":
-        # Relance de l'instance de l'utilisateur : elle **détruit** la partie
-        # en cours si aucun état n'a été sauvegardé au préalable. À n'appeler
-        # qu'en connaissance de cause.
+        # Relaunches the user's instance: this **destroys** the current game
+        # if no state was saved beforehand.
         options = argv[2:]
         vi = None
         state = None

@@ -1,48 +1,49 @@
-"""Durées des fondus JAI : musique, tempo, flux, effets sonores.
+"""JAI fade durations: music, tempo, streams, sound effects.
 
-Défaut
+Defect
 ======
-La couche JAI (MSound::mainLoop -> JAIBasic::startFrameInterfaceWork) passe une
-fois par image rendue : 30 fois par seconde dans le jeu d'origine, 120 à 120 FPS
-(relevé session 6 : compteur JAISound+0x14 à ~120/s). Toute transition de
-paramètre y est comptée en passages : JAIMoveParaSet {cible +0, courant +4,
-pas +8, compteur +0xC}, décrémenté d'une unité par passage par
-JAIData::moveParameter / JAIData::setSeMovePara. Une durée écrite pour 30 Hz
-s'écoule donc 4× trop vite à 120 FPS : fondus de musique aux changements de
-zone et à la sortie de niveau, accélération du tempo (MSModBgm::changeTempo,
-5 et 20 passages), atténuation de la musique pendant certains sons
-(seqMuteMoveSpeedSePlay = 3), fondus croisés MSBgmXFade (2), fondus de sortie
-des effets sonores (stop avec durée), fondu d'entrée des sons (JAISound+0x10).
+The JAI layer (MSound::mainLoop -> JAIBasic::startFrameInterfaceWork) runs once
+per rendered frame: 30 times per second in the original game, 120 at 120 FPS
+(measured in session 6: JAISound+0x14 counter at ~120/s). Every parameter
+transition there is counted in passes: JAIMoveParaSet {target +0, current +4,
+step +8, counter +0xC}, decremented by one each pass by
+JAIData::moveParameter / JAIData::setSeMovePara. A duration written for 30 Hz
+therefore elapses 4× too fast at 120 FPS: music fades on area changes and
+level exit, tempo speed-up (MSModBgm::changeTempo, 5 and 20 passes), music
+ducking during some sounds (seqMuteMoveSpeedSePlay = 3), MSBgmXFade
+crossfades (2), sound effect fade-outs (stop with duration), sound fade-in
+(JAISound+0x10).
 
-Tous ces chemins aboutissent à deux points (Graffito-Decomp, JAISound.cpp,
-relu dans le DOL) :
-  - JAISound::initMoveParameter(set, cible, durée)   0x8030A3B0 — séquences
-    (setSeqInterVolume/Pan/Pitch/Fxmix/Dolby, setSeqTempoProportion, données
-    de port) et flux (setStreamInterVolume/Pitch/Pan) ;
-  - setSeInterMovePara(set, durée), INLINÉ dans les cinq setters d'effets :
+All these paths end up in two places (Graffito-Decomp, JAISound.cpp, re-read in
+the DOL):
+  - JAISound::initMoveParameter(set, target, duration)   0x8030A3B0: sequences
+    (setSeqInterVolume/Pan/Pitch/Fxmix/Dolby, setSeqTempoProportion, port
+    data) and streams (setStreamInterVolume/Pitch/Pan);
+  - setSeInterMovePara(set, duration), INLINED in the five effect setters:
     setSeInterVolume 0x8030B700, Pan 0x8030B8C8, Fxmix 0x8030BA90,
-    Dolby 0x8030BC58, Pitch 0x8030BE20. Durée en r5 à l'entrée des six.
+    Dolby 0x8030BC58, Pitch 0x8030BE20. Duration in r5 on entry to all six.
 
-Seule exception connue, NON traitée ici : JAISound::setSePositionDopplar
-(0x8030C690) inline sa propre transition de hauteur Doppler avec
-JAIGlobalParameter::dopplarMoveTime (15). Voir docs/00-journal.md, session 7.
+Only known exception, NOT handled here: JAISound::setSePositionDopplar
+(0x8030C690) inlines its own Doppler pitch transition with
+JAIGlobalParameter::dopplarMoveTime (15). See docs/00-journal.md, session 7.
 
-Correctif
-=========
-Durée multipliée par M à l'entrée des six fonctions, M = 2 × littéral
-0x804167B8 (1 à 30 FPS, 2 à 60, 4 à 120), lu à l'exécution. M est une
-puissance de deux : on l'obtient par l'exposant du littéral, sans flottant,
-    décalage = exposant(littéral) − 126       0.5f -> 0, 1.0f -> 1, 2.0f -> 2
-    durée <<= décalage
-Durée 0 (immédiat) inchangée. Durée 1 : chez initMoveParameter, cas spécial
-« pas = écart total » ; ×4 la fait passer par la division, même durée réelle.
+Fix
+===
+Duration multiplied by M on entry to the six functions, M = 2 × literal
+0x804167B8 (1 at 30 FPS, 2 at 60, 4 at 120), read at run time. M is a power of
+two, so it is derived from the literal's exponent, without floating point:
+    shift = exponent(literal) − 126       0.5f -> 0, 1.0f -> 1, 2.0f -> 2
+    duration <<= shift
+Duration 0 (immediate) unchanged. Duration 1: initMoveParameter special-cases
+it as "step = full delta"; ×4 sends it through the division, same real
+duration.
 
-Routines (zone 0x80002E40 – 0x80002EA7) :
-    SCALE   r5 <<= décalage ; touche r12. Appelée par bl.
-    stub SE (×5) : mflr r0 (instruction d'origine) ; bl SCALE ; b site+4.
-        LR d'origine déjà dans r0, que le setter sauve juste après.
-    stub initMoveParameter : fonction feuille, LR à préserver — r11 (volatil,
-        pas un argument) garde LR autour du bl.
+Routines (range 0x80002E40 – 0x80002EA7):
+    SCALE   r5 <<= shift; clobbers r12. Called with bl.
+    SE stub (×5): mflr r0 (original instruction) ; bl SCALE ; b site+4.
+        The original LR is already in r0, which the setter saves right after.
+    initMoveParameter stub: leaf function, LR must be preserved; r11
+        (volatile, not an argument) holds LR around the bl.
 """
 
 from __future__ import annotations
@@ -55,12 +56,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from build_caves import assemble, words, listing  # noqa: E402
 
 CAVE_START = 0x80002E40
-CAVE_END = 0x80002EA8          # exclusif ; 0x80002EA8–0x80002EFF libres
+CAVE_END = 0x80002EA8          # exclusive; 0x80002EA8–0x80002EFF free
 SCALE = 0x80002E40
 
-SITE_INIT = 0x8030A3B0         # initMoveParameter : stwu r1, -0x20(r1)
+SITE_INIT = 0x8030A3B0         # initMoveParameter: stwu r1, -0x20(r1)
 SITES_SE = (
-    0x8030B700,                # setSeInterVolume  : mflr r0
+    0x8030B700,                # setSeInterVolume: mflr r0
     0x8030B8C8,                # setSeInterPan
     0x8030BA90,                # setSeInterFxmix
     0x8030BC58,                # setSeInterDolby
@@ -97,7 +98,7 @@ ASM_STUB_INIT = f"""
 
 
 def blocks() -> list[tuple[int, bytes, int]]:
-    """(adresse de la routine, code, site détourné ou 0)."""
+    """(routine address, code, hooked site or 0)."""
     out = [(SCALE, assemble(ASM_SCALE, SCALE), 0)]
     addr = SCALE + len(out[0][1])
     for site in SITES_SE:
@@ -116,7 +117,7 @@ def build() -> list[tuple[int, int]]:
         patches += words(addr, code)
         if site:
             sites += words(site, assemble(f"b {addr:#x}", site))
-    # Sites en dernier : les routines sont en place avant d'être atteignables.
+    # Sites last: routines are in place before they become reachable.
     return patches + sites
 
 

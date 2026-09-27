@@ -1,27 +1,20 @@
-"""Installation réversible du profil 120 FPS dans le répertoire utilisateur de
-Dolphin.
+"""Reversible install of the 120 FPS profile into Dolphin's user directory.
 
-Ce que ce module fait
----------------------
-Il recopie `deliver/GMSE01.ini` dans `<user>/GameSettings/GMSE01.ini`. Dolphin
-lit ce fichier **au démarrage du jeu**, et ses sections s'ajoutent à celles de
-`Sys/GameSettings/GMSE01.ini` — l'INI livré avec Dolphin n'est jamais modifié.
+Copies `deliver/GMSE01.ini` to `<user>/GameSettings/GMSE01.ini`. Dolphin reads
+this file when the game starts, and its sections are merged with those of
+`Sys/GameSettings/GMSE01.ini`; the INI shipped with Dolphin is never modified.
 
-Ce que ce module NE fait PAS
-----------------------------
-Il ne touche pas `Config/Dolphin.ini`. Le réglage d'overclock VI est porté par
-le profil par jeu, pas par la configuration globale : hors Sunshine, rien ne
-change.
+`Config/Dolphin.ini` is not touched. The VI overclock setting lives in the
+per-game profile, not the global configuration: nothing changes outside
+Sunshine.
 
-Il ne prend pas effet sur une partie déjà lancée. `VIOverclock` est un réglage
-d'hôte lu à l'amorçage, et les lignes Gecko sont posées avant que le jeu ne
-tourne. **Il faut démarrer le jeu après l'installation**, pas avant.
+It does not affect a game already running. `VIOverclock` is a host setting
+read at boot, and the patch lines are applied before the game runs. Start the
+game after installing, not before.
 
-Limite connue
--------------
-Si Dolphin est ouvert et que l'utilisateur édite les propriétés du jeu par
-l'interface, Dolphin réécrit ce fichier et peut perdre les commentaires. Le
-contenu fonctionnel, lui, survit : Dolphin conserve les clés qu'il comprend.
+Known limitation: if Dolphin is open and the user edits the game properties
+through the UI, Dolphin rewrites this file and may drop the comments. The
+functional content survives: Dolphin keeps the keys it understands.
 
 Usage
 -----
@@ -44,7 +37,7 @@ USER_DIR = Path(os.environ.get("DOLPHIN_USER_DIR", _APPDATA / "Dolphin Emulator"
 TARGET = USER_DIR / "GameSettings" / "GMSE01.ini"
 BACKUP = ROOT / "work" / "GMSE01.ini.avant-installation"
 
-MARKERS = ("Sunshine Overdrive", "Framerate Sunshine")   # nom actuel, ancien nom
+MARKERS = ("Sunshine Overdrive", "Framerate Sunshine")   # current name, old name
 
 
 def installed() -> bool:
@@ -60,8 +53,8 @@ def install() -> None:
         )
     TARGET.parent.mkdir(parents=True, exist_ok=True)
 
-    # Un GMSE01.ini préexistant est mis de côté une seule fois : réinstaller
-    # par-dessus le profil ne doit pas écraser la sauvegarde d'origine.
+    # A pre-existing GMSE01.ini is backed up only once: reinstalling over the
+    # profile must not overwrite the original backup.
     if TARGET.exists() and not installed() and not BACKUP.exists():
         BACKUP.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(TARGET, BACKUP)

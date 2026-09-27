@@ -1,23 +1,23 @@
-"""Chronomètre en jeu les transitions : démo caméra d'entrée de niveau, fondus
-TSMSFader, volets HX, et l'attente de Mario jusqu'au sommeil.
+"""Times in-game transitions: level-entry camera demo, TSMSFader fades, HX
+wipes, and Mario's idle wait until he falls asleep.
 
-Rien n'est corrigé ici : l'outil relève, à ~500 Hz, chaque changement des
-grandeurs ci-dessous et horodate chaque ligne avec deux horloges — le temps
-réel et le compteur de passages JAI (JAIBasic::basic 0x8040E430 → +0x20, un par image rendue, 120/s au
-palier 120). La colonne `img` permet donc de compter en images sans dépendre
-de la granularité de `time.sleep` sous Windows (~15,6 ms).
+Nothing is patched here. At ~500 Hz the tool logs every change of the values
+below and stamps each line with two clocks: real time and the JAI pass counter
+(JAIBasic::basic 0x8040E430 -> +0x20, one per rendered frame, 120/s in the
+120 tier). The `img` column counts frames independently of the `time.sleep`
+granularity on Windows (~15.6 ms).
 
-Grandeurs relevées
-------------------
-    dir   TMarDirector (gpMarDirector 0x8040E178) +0x64 u8 : état du directeur
-    cam   gpCamera (0x8040D0A8) +0x50 mode, +0x64 drapeaux (0x200 porte,
-          0x1000 montagnes russes), démo +0x2B4 → {+0x10 total, +0x14 restant}
-    bck   TCameraBck (+0x2B0) → MActor → getFrameCtrl(0) : trame, débit, fin
-    fad   gpApplication (0x803E9700) +0x34 TSMSFader : +0x20 état,
-          +0x10 durée, +0x12 compteur, +0x14 taux, +0x2C délai
-    hx    compte à rebours des volets HX, 0x803F43FC
-    mar   gpMarioOriginal (0x8040E0E8) : +0x7C action, +0x84 sous-état,
-          +0x86 minuteur
+Values logged
+-------------
+    dir   TMarDirector (gpMarDirector 0x8040E178) +0x64 u8: director state
+    cam   gpCamera (0x8040D0A8) +0x50 mode, +0x64 flags (0x200 door,
+          0x1000 roller coaster), demo +0x2B4 -> {+0x10 total, +0x14 remaining}
+    bck   TCameraBck (+0x2B0) -> MActor -> getFrameCtrl(0): animation frame, rate, end
+    fad   gpApplication (0x803E9700) +0x34 TSMSFader: +0x20 state,
+          +0x10 duration, +0x12 counter, +0x14 rate, +0x2C delay
+    hx    HX wipe countdown, 0x803F43FC
+    mar   gpMarioOriginal (0x8040E0E8): +0x7C action, +0x84 substate,
+          +0x86 timer
 
 Usage
 -----
@@ -37,7 +37,7 @@ from dolphin import Dolphin  # noqa: E402
 
 LOG = Path(__file__).resolve().parent.parent / "work" / "transitions.log"
 
-JAI_BASIC = 0x8040E430       # JAIBasic::basic (pointeur) ; compteur de passages en +0x20
+JAI_BASIC = 0x8040E430       # JAIBasic::basic (pointer); pass counter at +0x20
 GP_APP = 0x803E9700
 GP_DIRECTOR = 0x8040E178
 GP_CAMERA = 0x8040D0A8

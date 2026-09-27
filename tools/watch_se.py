@@ -1,16 +1,16 @@
-"""Relève en continu les effets sonores (SE) présents dans la couche JAI.
+"""Continuously logs the sound effects (SE) present in the JAI layer.
 
-Sert à diagnostiquer un son qui ne se fait plus entendre : on voit s'il est
-demandé (présent dans la liste), dans quel état il est, et combien de temps il
-y reste. Chaque changement est journalisé avec un horodatage.
+For diagnosing a sound that is no longer heard: shows whether it is requested
+(present in the list), its state, and how long it stays there. Each change is
+logged with a timestamp.
 
-Chemin des données (Graffito-Decomp, JAIBasic.hpp / JAIData.hpp / JAISound.hpp) :
-    gpMSound (0x8040E17C) : MSound, qui hérite de JAIBasic
-    JAIBasic+0x00         : JAIData*
-    JAIData+0x1E8         : JAILinkBuffer[catégories], 0xC octets chacun ;
-                            +0x4 = tête de la liste des SE actifs
-    JAISound+0x30         : suivant ; +0x1 état ; +0x2 durée de vie ; +0x8 id
-    nombre de catégories  : *(*(0x8040E430)) + 0x89   (getParamSeCategoryMax)
+Data path (Graffito-Decomp, JAIBasic.hpp / JAIData.hpp / JAISound.hpp):
+    gpMSound (0x8040E17C): MSound, derived from JAIBasic
+    JAIBasic+0x00        : JAIData*
+    JAIData+0x1E8        : JAILinkBuffer[categories], 0xC bytes each;
+                           +0x4 = head of the active SE list
+    JAISound+0x30        : next; +0x1 state; +0x2 lifetime; +0x8 id
+    category count       : *(*(0x8040E430)) + 0x89   (getParamSeCategoryMax)
 
 Usage
 -----
@@ -31,14 +31,14 @@ GP_MSOUND = 0x8040E17C
 
 
 def snapshot(d: Dolphin) -> dict[tuple[int, int], tuple[int, int, int]]:
-    """{(adresse JAISound, id): (catégorie, état, durée de vie)}"""
+    """{(JAISound address, id): (category, state, lifetime)}"""
     data = d.u32(d.u32(GP_MSOUND))
     buffers = d.u32(data + 0x1E8)
     categories = d.u8(d.u32(d.u32(0x8040E430)) + 0x89)
     out = {}
     for cat in range(categories):
         it = d.u32(buffers + 0xC * cat + 4)
-        for _ in range(64):                         # garde-fou contre une liste corrompue
+        for _ in range(64):                         # guard against a corrupted list
             if not d.is_valid_pointer(it):
                 break
             out[(it, d.u32(it + 8))] = (cat, d.u8(it + 1), d.u8(it + 2))

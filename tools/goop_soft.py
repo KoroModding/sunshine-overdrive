@@ -1,33 +1,33 @@
-"""Prototype « bord fondu » de la goop, appliqué EN DIRECT dans la mémoire du jeu.
+"""Goop soft-edge prototype, applied LIVE in game memory.
 
-Le matériau de la goop est reconstruit à partir de ses blocs J3D à chaque
-dessin (paquets non verrouillés, J3DJoint::entryIn → makeDisplayList ; voir
-tools/goop_inspect.py). Modifier les blocs prend donc effet à l'image suivante,
-sans redémarrer : de quoi comparer des réglages à l'œil.
+The goop material is rebuilt from its J3D blocks on every draw (unlocked
+packets, J3DJoint::entryIn -> makeDisplayList; see tools/goop_inspect.py).
+Changing the blocks therefore takes effect on the next frame without a
+restart, which is enough to compare settings by eye.
 
-Matériau d'origine (identique sur les 9 matériaux de Bianco, relu) :
-    étage 0 alpha : PREV = TEXA (masque)
-    étage 1 alpha : PREV = (APREV + 0,5) × 0,5        mot BP C3 31FF80
-    étage 2 alpha : PREV = APREV                       mot BP C5 00FF80
-    PE : alpha compare GEQUAL 128 AND LEQUAL 255, blend NONE (opaque)
-→ seuil net à masque = 0,5 : le contour est l'isoligne 0,5 du masque
-  bilinéaire, d'où les marches.
+Original material (identical on all 9 Bianco materials, re-read):
+    alpha stage 0: PREV = TEXA (mask)
+    alpha stage 1: PREV = (APREV + 0.5) x 0.5        BP word C3 31FF80
+    alpha stage 2: PREV = APREV                      BP word C5 00FF80
+    PE: alpha compare GEQUAL 128 AND LEQUAL 255, blend NONE (opaque)
+-> hard threshold at mask = 0.5: the outline is the 0.5 isoline of the
+   bilinear mask, hence the steps.
 
-Prototype : rampe d'opacité centrée sur ce même seuil, mélange activé.
-    étage 1 alpha : PREV = (APREV − 0,5) × K   sans saturation (K = 2 ou 4)
-    étage 2 alpha : PREV = clamp(APREV + 0,5)
-    PE : blend SRCALPHA / INVSRCALPHA, alpha compare ref0 = 1
-K = 4 : rampe sur masque 96–160 (bord doux étroit) ; K = 2 : 64–192 (large).
-Le contour reste l'isoligne 0,5 ; seul son aspect change (piste 1 du plan).
-Le masque (données de gameplay) n'est jamais touché.
+Prototype: opacity ramp centred on the same threshold, blending enabled.
+    alpha stage 1: PREV = (APREV - 0.5) x K   unclamped (K = 2 or 4)
+    alpha stage 2: PREV = clamp(APREV + 0.5)
+    PE: blend SRCALPHA / INVSRCALPHA, alpha compare ref0 = 1
+K = 4: ramp over mask 96-160 (narrow soft edge); K = 2: 64-192 (wide).
+The outline is still the 0.5 isoline; only its look changes (option 1 of the
+plan). The mask (gameplay data) is never touched.
 
 Usage
 -----
     python tools/goop_soft.py status
-    python tools/goop_soft.py apply [--k 2|4]     sauvegarde puis applique
-    python tools/goop_soft.py restore             remet les octets d'origine
-Sauvegarde : work/goop-soft-backup.json (par adresse). Un changement de niveau
-recharge les modèles : rien à restaurer dans ce cas.
+    python tools/goop_soft.py apply [--k 2|4]     back up, then apply
+    python tools/goop_soft.py restore             restore the original bytes
+Backup: work/goop-soft-backup.json (by address). A level change reloads the
+models, so there is nothing to restore in that case.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ VT_LAYER = 0x803C2160
 VT_TEVBLOCK4 = 0x803E0AB0
 VT_PEBLOCK_FULL = 0x803E0968
 
-ST1_ALPHA = 0x29          # TevBlock4 : +0x1D + 8·s + 4, s = 1 (id BP + 3 octets)
+ST1_ALPHA = 0x29          # TevBlock4: +0x1D + 8*s + 4, s = 1 (BP id + 3 bytes)
 ST2_ALPHA = 0x31          # s = 2
 ORIG_ST1 = bytes.fromhex("C331FF80")
 ORIG_ST2 = bytes.fromhex("C500FF80")
@@ -54,7 +54,7 @@ PE_REF0 = 0x0A
 PE_BLEND = 0x0C           # type, src, dst, logic
 ORIG_BLEND = bytes([0, 1, 0, 3])   # NONE, ONE, ZERO, COPY
 
-SCALE = {1: 0, 2: 1, 4: 2}  # champ scale du mot alpha TEV
+SCALE = {1: 0, 2: 1, 4: 2}  # scale field of the TEV alpha word
 
 
 def alpha_env(d: int, bias: int, scale: int, clamp: int, a=7, b=7, c=7, op=0, dest=0) -> int:
@@ -63,7 +63,7 @@ def alpha_env(d: int, bias: int, scale: int, clamp: int, a=7, b=7, c=7, op=0, de
 
 
 def materials(dm: Dolphin) -> list[tuple[int, int, int]]:
-    """(matériau, bloc TEV, bloc PE) de toutes les couches TPollutionLayer."""
+    """(material, TEV block, PE block) of every TPollutionLayer layer."""
     raw = dm.read(0x80000000, 0x01800000)
     key = struct.pack(">I", VT_LAYER)
     out, i = [], raw.find(key)

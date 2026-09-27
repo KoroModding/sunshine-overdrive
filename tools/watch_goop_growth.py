@@ -1,10 +1,9 @@
-"""Croissance de la goop, masque de gameplay contre copie affichée.
+"""Goop growth, gameplay mask versus displayed copy.
 
-Toutes les ~5 ms, pour chaque couche suivie par le module goop : texels de
-goop (> 127) dans le masque et dans la copie lissée, avec le compteur
-d'images du jeu. Seules les variations sont journalisées : on voit si le
-masque grossit par paliers (le jeu) ou si la copie le suit en retard (le
-module).
+Every ~5 ms, for each layer tracked by the goop module: goop texels (> 127)
+in the mask and in the smoothed copy, with the game's frame counter. Only
+changes are logged, showing whether the mask grows in steps (the game) or the
+copy lags behind it (the module).
 
     python tools/watch_goop_growth.py [secondes]      (défaut 120)
 """

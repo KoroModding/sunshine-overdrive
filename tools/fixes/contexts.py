@@ -1,137 +1,137 @@
-"""Groupe « contextes forcés à 30 FPS » — port de BSE fps.cpp l. 34-65 (updateFPS) et l. 509-514 (QFSync).
+"""Group "contexts forced to 30 FPS" — port of BSE fps.cpp l. 34-65 (updateFPS) and l. 509-514 (QFSync).
 
-Principe
-========
-Le littéral f32 0x804167B8 (lu par SMSGetVSyncTimesPerSec = 60 x lit, et par
-SMSGetAnmFrameRate) et TDisplay::mRetraceCount (+0x4C) ne sont plus posés par
-[OnFrame] : une routine en caverne les écrit selon le contexte courant de
-TApplication, avant la mise en place de chaque directeur ET au début de chaque
-image. Les autres groupes relisent M = 2 x lit à l'exécution, donc tous leurs
-correctifs suivent (M = 1 en contexte forcé, 4 sinon).
+Principle
+=========
+The f32 literal 0x804167B8 (read by SMSGetVSyncTimesPerSec = 60 x lit, and by
+SMSGetAnmFrameRate) and TDisplay::mRetraceCount (+0x4C) are no longer set by
+[OnFrame]: a code cave routine writes them according to the current TApplication
+context, before each director is set up AND at the start of each frame. The
+other groups re-read M = 2 x lit at run time, so all their fixes follow
+(M = 1 in a forced context, 4 otherwise).
 
-    contexte (gpApplication.mAppState, u8 +0x08)   littéral   mRetraceCount   cadence
-    0..4  (LOAD_LOOP, MAIN_LOOP, BOOT, LOGO, INTRO)  0.5f        5              29,97
-    5..9  (STAGE, MOVIE, SHUTDOWN, SELECT, MENU)     2.0f        2             119,88
+    context (gpApplication.mAppState, u8 +0x08)    literal   mRetraceCount   rate
+    0..4  (LOAD_LOOP, MAIN_LOOP, BOOT, LOGO, INTRO)  0.5f        5              29.97
+    5..9  (STAGE, MOVIE, SHUTDOWN, SELECT, MENU)     2.0f        2             119.88
 
-LIGNES [OnFrame] EXISTANTES À RETIRER / CONSERVER (deliver/GMSE01.ini)
-======================================================================
-  * À RETIRER impérativement :  0x804167B8:dword:0x40000000
-      Sinon le PatchEngine réécrit 2.0f à chaque champ VI, au milieu d'une image
-      forcée à 0.5f : horloge logique et M incohérents d'un champ à l'autre.
-      Sans cette ligne, le mot vaut 0.5f (valeur du DOL) jusqu'au premier
-      passage de la routine — c'est la valeur voulue pour l'amorçage.
-  * À CONSERVER :  0x802FCB24:dword:0x60000000  (les comptes 2 et 5 ci-dessous
-      supposent l'attente finale de waitForRetrace neutralisée).
-  * Aucune autre ligne existante n'est touchée.
-  * Outils : tools/keep120.py (réécrit 0x804167B8 = 2.0 et +0x4C par données)
-    ne doit plus être lancé avec ce profil ; tools/validate_120.py signalera
-    [NON] sur le littéral pendant boot / logo / intro — c'est attendu.
+EXISTING [OnFrame] LINES TO REMOVE / KEEP (deliver/GMSE01.ini)
+==============================================================
+  * MUST REMOVE:  0x804167B8:dword:0x40000000
+      Otherwise the PatchEngine rewrites 2.0f on every VI field, in the middle
+      of a frame forced to 0.5f: logic clock and M inconsistent from one field
+      to the next. Without this line, the word is 0.5f (DOL value) until the
+      routine's first pass — the desired value for boot.
+  * KEEP:  0x802FCB24:dword:0x60000000  (the counts 2 and 5 below assume the
+      final wait of waitForRetrace is neutralised).
+  * No other existing line is touched.
+  * Tools: tools/keep120.py (rewrites 0x804167B8 = 2.0 and +0x4C as data)
+    must no longer be run with this profile; tools/validate_120.py will report
+    [NON] on the literal during boot / logo / intro — that is expected.
 
-Adresses et offsets (preuves)
-=============================
-  gpApplication = 0x803E9700  (us.map ; et proc 802A639C lis r4,0x803F / 802A63B4 addi r26,r4,-0x6900)
+Addresses and offsets (evidence)
+================================
+  gpApplication = 0x803E9700  (us.map; and proc 802A639C lis r4,0x803F / 802A63B4 addi r26,r4,-0x6900)
   mAppState  +0x08 u8   gameLoop 802A60A0 lbz r0,8(r31) ; cmplwi r0,2 (BOOT)
                         proc 802A67C8 lbz r0,8(r31) ; 802A6794 stb r30,8(r31)
-  mDisplay   +0x1C      gameLoop 802A5F98 lwz r3,0x1c(r31) puis appel virtuel startRendering
+  mDisplay   +0x1C      gameLoop 802A5F98 lwz r3,0x1c(r31) then virtual call startRendering
   mRetraceCount +0x4C   endRendering 802F80E8 lhz r4,0x4c(r31) ; 802F80EC bl waitForRetrace
   TMarDirector::mCurState +0x64 u8  direct 802999D8 lbz r0,0x64(r26) ; ctor 80297124 stb r30,0x64(r29)
 
-Énumération des contextes — BSE (SunshineHeaderInterface, Application.hxx) :
+Context enumeration — BSE (SunshineHeaderInterface, Application.hxx):
 LOAD_LOOP 0, MAIN_LOOP 1, GAME_BOOT 2, GAME_BOOT_LOGO 3, GAME_INTRO 4, DIRECT_STAGE 5,
-DIRECT_MOVIE 6, GAME_SHUTDOWN 7, SHINE_SELECT 8, LEVEL_SELECT 9. Recoupé avec la décompilation
-(APP_STATE_WAIT 0 … MENU 9) et la table de sauts de proc en 0x803DF424 lue dans le DOL :
-  2 -> 802A63E4 SMSSetupGCLogoRenderingInfo seul                (BOOT)
-  3 -> 802A63F0 TGCLogoDir::setup                               (LOGO Nintendo)
-  4 -> 802A65D8 mMovie = 9, mNextArea = 15, puis TMovieDirector (INTRO)
+DIRECT_MOVIE 6, GAME_SHUTDOWN 7, SHINE_SELECT 8, LEVEL_SELECT 9. Cross-checked with the
+decompilation (APP_STATE_WAIT 0 … MENU 9) and proc's jump table at 0x803DF424 read in the DOL:
+  2 -> 802A63E4 SMSSetupGCLogoRenderingInfo only                (BOOT)
+  3 -> 802A63F0 TGCLogoDir::setup                               (Nintendo LOGO)
+  4 -> 802A65D8 mMovie = 9, mNextArea = 15, then TMovieDirector (INTRO)
   5 -> 802A64A0 checkAdditionalMovie / TMarDirector::setup       (STAGE)
   6 -> 802A65F4 TMovieDirector                                  (MOVIE)
-  8 -> 802A6580 TSelectDir::setup ; 9 -> 802A6428 TMenuDirector::setup ; 0,1,7 -> 802A6644 (rien)
-0 et 1 ne sont jamais la valeur de mAppState en pratique (gameLoop boucle tant que
-nextState <= 1, 802A635C cmplwi r29,1 / ble) ; ils sont inclus comme chez BSE, sans effet.
+  8 -> 802A6580 TSelectDir::setup ; 9 -> 802A6428 TMenuDirector::setup ; 0,1,7 -> 802A6644 (nothing)
+0 and 1 are never the value of mAppState in practice (gameLoop loops while
+nextState <= 1, 802A635C cmplwi r29,1 / ble); they are included as in BSE, with no effect.
 
-mRetraceCount pour 30 FPS = 5 (et non 2 comme chez BSE)
---------------------------------------------------------
-waitForRetrace, avec 802FCB24 (bl VIWaitForRetrace final) remplacé par nop :
+mRetraceCount for 30 FPS = 5 (not 2 as in BSE)
+-----------------------------------------------
+waitForRetrace, with 802FCB24 (final bl VIWaitForRetrace) replaced by nop:
   802FC9C8 bl VIWaitForRetrace / 802FC9CC bl VIGetRetraceCount / 802FC9D0 lwz r0,0x84(r30)
-  802FC9D4 subf r0,r3,r0 / 802FC9D8 cmpwi r0,1 / 802FC9DC bgt 802FC9C8   -> attend next - count <= 1
+  802FC9D4 subf r0,r3,r0 / 802FC9D8 cmpwi r0,1 / 802FC9DC bgt 802FC9C8   -> waits until next - count <= 1
   802FCB30 bl VIGetRetraceCount / 802FCB34 clrlwi r0,r31,16 / 802FCB38 add / 802FCB3C stw r0,0x84(r30)
-  -> next = count + mRetraceCount. En régime permanent : mRetraceCount - 1 champs par image.
-  120 FPS : 2 -> 1 champ (119,88/s). 30 FPS : 4 champs voulus -> mRetraceCount = 5.
-BSE écrit 2 / 1 / 0 parce que son attente finale est intacte (champs = max(1, mRetraceCount)).
-Aucun écrivain de +0x4C dans SMSSetup{Movie,Game,Title,GCLogo}RenderingInfo (lus jusqu'au blr).
+  -> next = count + mRetraceCount. In steady state: mRetraceCount - 1 fields per frame.
+  120 FPS: 2 -> 1 field (119.88/s). 30 FPS: 4 fields wanted -> mRetraceCount = 5.
+BSE writes 2 / 1 / 0 because its final wait is intact (fields = max(1, mRetraceCount)).
+No writer of +0x4C in SMSSetup{Movie,Game,Title,GCLogo}RenderingInfo (read up to the blr).
 
-Fix 1 — sélection du contexte (updateFPS de BSE)
-================================================
-Routine « core » (r31 = &gpApplication aux deux sites) : lit mAppState ; si <= 4 écrit
-0.5f dans 0x804167B8 et 5 dans mDisplay->mRetraceCount, sinon 2.0f et 2. Les deux
-valeurs du littéral sont des constantes de la caverne (0x80002800 / 0x80002804) :
-changer le palier « normal » se fait là. Deux sites d'appel :
+Fix 1 — context selection (BSE updateFPS)
+=========================================
+"core" routine (r31 = &gpApplication at both sites): reads mAppState; if <= 4 writes
+0.5f to 0x804167B8 and 5 to mDisplay->mRetraceCount, otherwise 2.0f and 2. The two
+literal values are code cave constants (0x80002800 / 0x80002804): the "normal"
+tier is changed there. Two call sites:
 
-  a) 0x802A63C4  proc+0x2C  « cmplwi r0, 9 » (tête du switch, cible unique : 802A67D0 bne)
-     -> bl entry_proc, qui appelle core puis refait lbz r0,8(r31) / cmplwi r0,9 (cr0 lu
-     par 802A63D0 bgt ; li r30 / li r29 intermédiaires ne touchent pas cr0).
-     Pourquoi ici : c'est AVANT la construction du directeur du nouveau contexte. Chez
-     BSE, updateFPS tourne juste avant direct() (hook 0x802A616C), donc le setup d'un
-     directeur voit encore le littéral du contexte précédent (ex. TMarDirector::setup
-     après l'intro à 30). Ici le setup voit le littéral de son propre contexte :
-     setup de stage à 2.0 comme dans le profil 120 déjà mesuré, TGCLogoDir (ctor
-     802963C0 bl SMSGetVSyncTimesPerSec ; 802963CC stfs f1,0x28) à 30 comme l'original.
-     DÉSACCORD mineur avec BSE, volontaire.
-  b) 0x802A5F98  gameLoop+0x48  « lwz r3, 0x1c(r31) » (tête de boucle d'image, cible
-     unique : 802A6360 ble) -> bl entry_frame, qui appelle core puis exécute le lwz.
-     r0/r4-r6/r11 sont morts à ce point (802A5F9C lwz r12,0(r3) ; r0 réécrit en
-     802A5FC4). Redondant avec (a) tant que rien d'autre n'écrit +0x4C ou le littéral ;
-     garde-fou à coût négligeable, et couvre BOOT/LOGO que le hook BSE (0x802A616C,
-     branche « else » de gameLoop) ne couvre pas.
-  Ordre dans l'image : core -> startRendering -> direct() -> endRendering/waitForRetrace :
-  le littéral et mRetraceCount valent pour l'image entière.
+  a) 0x802A63C4  proc+0x2C  "cmplwi r0, 9" (switch head, single target: 802A67D0 bne)
+     -> bl entry_proc, which calls core then redoes lbz r0,8(r31) / cmplwi r0,9 (cr0 read
+     by 802A63D0 bgt; the li r30 / li r29 in between do not touch cr0).
+     Why here: it is BEFORE the new context's director is constructed. In BSE,
+     updateFPS runs just before direct() (hook 0x802A616C), so a director's setup
+     still sees the previous context's literal (e.g. TMarDirector::setup after the
+     intro at 30). Here setup sees its own context's literal: stage setup at 2.0 as
+     in the already measured 120 profile, TGCLogoDir (ctor 802963C0 bl
+     SMSGetVSyncTimesPerSec ; 802963CC stfs f1,0x28) at 30 like the original.
+     Minor DISAGREEMENT with BSE, deliberate.
+  b) 0x802A5F98  gameLoop+0x48  "lwz r3, 0x1c(r31)" (frame loop head, single
+     target: 802A6360 ble) -> bl entry_frame, which calls core then executes the lwz.
+     r0/r4-r6/r11 are dead at this point (802A5F9C lwz r12,0(r3); r0 rewritten at
+     802A5FC4). Redundant with (a) as long as nothing else writes +0x4C or the literal;
+     a negligible-cost safeguard, and it covers BOOT/LOGO, which the BSE hook
+     (0x802A616C, "else" branch of gameLoop) does not.
+  Order within the frame: core -> startRendering -> direct() -> endRendering/waitForRetrace:
+  the literal and mRetraceCount hold for the whole frame.
 
-Fix 2 — QFSync : 30 « vsync/s » dans TMarDirector::direct pendant STATE_INTRO_INIT
-=================================================================================
-Site 0x80299850 direct+0x18 « bl SMSGetVSyncTimesPerSec » (r3 = this, 8029984C mr r26,r3)
--> bl qfsync : si this->mCurState (+0x64) == 0 (STATE_INTRO_INIT, SunshineHeaderInterface
-MarDirector.hxx) renvoie f1 = 30.0f, sinon saut terminal vers SMSGetVSyncTimesPerSec
-(lr intact -> retour en 80299854). Effet : vsyncRate = 600/30 = 20 -> 4 sous-pas pour la
-première image du stage, comme le jeu d'origine, avant le premier dessin.
-BSE teste aussi mContext == DIRECT_STAGE et mDirector != 0 : implicite ici, un TMarDirector
-n'existe qu'en contexte 5 (802A6550 bl __ct__12TMarDirector, seul cas de la table) et
-direct() reçoit this.
-Durée : changeState a un seul appelant (xref : 80299D0C), DANS la boucle de sous-pas
-(80299D20 b 8029994C, retour en tête de boucle) ; son cas 0 (80298EC4…) choisit l'état
-suivant sans compteur. L'état 0 est donc quitté dès le premier sous-pas, mais vsyncRate a
-déjà été calculé (20) en tête de direct() : la première image « pleine » du stage fait 4
-sous-pas, les suivantes 1. Les images où le thread de setup n'a pas fini sortent en
-80299890, AVANT l'accumulateur (80299938-80299944), et ne comptent pas.
-NON VÉRIFIÉ : le bogue exact que BSE corrige ainsi (probablement des objets qui doivent avoir
-reçu plusieurs sous-pas avant le premier dessin). Port fidèle, coût borné (3 sous-pas de plus,
-25 ms de simulation, une fois par entrée de stage).
+Fix 2 — QFSync: 30 "vsync/s" in TMarDirector::direct during STATE_INTRO_INIT
+============================================================================
+Site 0x80299850 direct+0x18 "bl SMSGetVSyncTimesPerSec" (r3 = this, 8029984C mr r26,r3)
+-> bl qfsync: if this->mCurState (+0x64) == 0 (STATE_INTRO_INIT, SunshineHeaderInterface
+MarDirector.hxx) returns f1 = 30.0f, otherwise tail jump to SMSGetVSyncTimesPerSec
+(lr intact -> returns to 80299854). Effect: vsyncRate = 600/30 = 20 -> 4 substeps for the
+stage's first frame, as in the original game, before the first draw.
+BSE also tests mContext == DIRECT_STAGE and mDirector != 0: implicit here, a TMarDirector
+only exists in context 5 (802A6550 bl __ct__12TMarDirector, the only case in the table) and
+direct() receives this.
+Duration: changeState has a single caller (xref: 80299D0C), INSIDE the substep loop
+(80299D20 b 8029994C, back to the loop head); its case 0 (80298EC4…) picks the next
+state without a counter. State 0 is therefore left on the first substep, but vsyncRate
+has already been computed (20) at the top of direct(): the stage's first "full" frame
+has 4 substeps, the following ones 1. Frames where the setup thread has not finished
+exit at 80299890, BEFORE the accumulator (80299938-80299944), and do not count.
+NOT VERIFIED: the exact bug BSE fixes this way (probably objects that must have
+received several substeps before the first draw). Faithful port, bounded cost (3 extra
+substeps, 25 ms of simulation, once per stage entry).
 
-Accumulateur (TMarDirector +0x54) aux changements de contexte
-=============================================================
-80299938-80299944 : unk54 += 600/(int)SMSGetVSyncTimesPerSec() ; la boucle retire 5 par
-sous-pas et s'arrête dès unk54 < 5 (80299980 cmpwi r0,5), donc le reste est toujours dans
-[0,5). Un changement de vsyncRate (5 <-> 20) ne peut ni créer de rafale ni de dette : il
-change seulement le nombre de sous-pas de l'image suivante (1 ou 4). De plus le littéral
-ne change qu'entre deux directeurs (mAppState n'est écrit qu'en 802A6794, hors gameLoop),
-et chaque TMarDirector repart de unk54 = 0 (ctor 802970A4 stw r30,0x54(r29) ; r30 = 0
-NON VÉRIFIÉ formellement, même registre que mCurState = 0). Le seul changement en cours
-de stage est QFSync, borné ci-dessus.
+Accumulator (TMarDirector +0x54) on context changes
+===================================================
+80299938-80299944: unk54 += 600/(int)SMSGetVSyncTimesPerSec(); the loop subtracts 5 per
+substep and stops as soon as unk54 < 5 (80299980 cmpwi r0,5), so the remainder is always
+in [0,5). A vsyncRate change (5 <-> 20) can create neither a burst nor a debt: it only
+changes the substep count of the next frame (1 or 4). Moreover the literal only changes
+between two directors (mAppState is only written at 802A6794, outside gameLoop), and each
+TMarDirector starts from unk54 = 0 (ctor 802970A4 stw r30,0x54(r29); r30 = 0 NOT formally
+VERIFIED, same register as mCurState = 0). The only mid-stage change is QFSync, bounded
+above.
 
-Dépendances / effets sur les autres groupes
-===========================================
-  * Tous les groupes lisent M = 2 x f32[0x804167B8] : M = 1 en boot/logo/intro, 4 sinon.
-  * Fader (fader.py, Fix 3) : TApplication::initialize (802A7730) construit mFader AVANT
-    proc, donc avec le littéral du DOL (0.5 -> taux 30), puisque la ligne [OnFrame] du
-    littéral est retirée. Cohérent avec l'hypothèse « +0x14 = 30 » de ce groupe et de BSE.
-  * TMenuDirector (ctor 802A4250) et TMovieDirector::direct (802B6388) voient 120 :
-    inchangé par rapport au profil actuel. Les films THP (contexte 6, et 5 si
-    checkAdditionalMovie) restent à 120 comme chez BSE — NON VÉRIFIÉ à l'écran.
-  * drawDVDErr (802A5EFC) lit le même littéral : centrage correct du message en
-    contexte forcé seulement (effet de bord déjà connu du profil).
-  * Le PatchEngine réécrit les mots de la caverne et des sites à chaque champ : écritures
-    idempotentes, aucun état mutable dans la caverne.
+Dependencies / effects on other groups
+======================================
+  * All groups read M = 2 x f32[0x804167B8]: M = 1 in boot/logo/intro, 4 otherwise.
+  * Fader (fader.py, Fix 3): TApplication::initialize (802A7730) constructs mFader BEFORE
+    proc, hence with the DOL literal (0.5 -> rate 30), since the [OnFrame] line for the
+    literal is removed. Consistent with the "+0x14 = 30" assumption of this group and of BSE.
+  * TMenuDirector (ctor 802A4250) and TMovieDirector::direct (802B6388) see 120:
+    unchanged from the current profile. THP movies (context 6, and 5 if
+    checkAdditionalMovie) stay at 120 as in BSE — NOT VERIFIED on screen.
+  * drawDVDErr (802A5EFC) reads the same literal: the message is centred correctly only in
+    a forced context (side effect already known in the profile).
+  * The PatchEngine rewrites the code cave and site words on every field: idempotent
+    writes, no mutable state in the code cave.
 
-NON VÉRIFIÉ (global) : comportement en exécution — rien n'a été lancé dans Dolphin.
+NOT VERIFIED (global): run-time behaviour — nothing was run in Dolphin.
 """
 
 from __future__ import annotations
@@ -144,18 +144,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from build_caves import assemble, words  # noqa: E402
 
 CAVE_START = 0x80002800
-CAVE_END = 0x80002C00  # exclu
+CAVE_END = 0x80002C00  # exclusive
 
-# Données (constantes, réécrites par le profil sans dommage)
-LIT_FAST = 0x80002800   # 2.0f  littéral hors contexte forcé (palier 120)
-LIT_SLOW = 0x80002804   # 0.5f  littéral en contexte forcé (30 FPS)
-QF_CONST = 0x80002808   # 30.0f valeur QFSync
+# Data (constants, safe for the profile to rewrite)
+LIT_FAST = 0x80002800   # 2.0f  literal outside forced contexts (120 tier)
+LIT_SLOW = 0x80002804   # 0.5f  literal in forced contexts (30 FPS)
+QF_CONST = 0x80002808   # 30.0f QFSync value
 CODE = 0x80002810
-DEBUG_FORCE30 = 0x80002BFC  # u32, diagnostic : non nul = 30 FPS partout (état, jamais écrit par le profil)
+DEBUG_FORCE30 = 0x80002BFC  # u32, diagnostic: non-zero = 30 FPS everywhere (state, never written by the profile)
 
-RC_FAST = 2   # mRetraceCount palier 120 (1 champ, attente finale neutralisée)
-RC_SLOW = 5   # mRetraceCount 30 FPS (4 champs)
-MAX_FORCED_STATE = 4  # contextes 0..4 forcés
+RC_FAST = 2   # mRetraceCount for the 120 tier (1 field, final wait neutralised)
+RC_SLOW = 5   # mRetraceCount for 30 FPS (4 fields)
+MAX_FORCED_STATE = 4  # contexts 0..4 are forced
 
 LITERAL = 0x804167B8
 SMS_GET_VSYNC = 0x802A7C48
@@ -254,7 +254,7 @@ def build() -> list[tuple[int, int]]:
     ]
     for addr, code in blocks.values():
         patches += words(addr, code)
-    # Sites d'appel en dernier.
+    # Call sites last.
     patches += words(SITE_QFSYNC, assemble(f"bl {blocks['qfsync'][0]:#x}", SITE_QFSYNC))
     patches += words(SITE_PROC, assemble(f"bl {blocks['entry_proc'][0]:#x}", SITE_PROC))
     patches += words(SITE_FRAME, assemble(f"bl {blocks['entry_frame'][0]:#x}", SITE_FRAME))
@@ -289,7 +289,6 @@ def main() -> int:
             print(after)
             print()
 
-    # Vérification des valeurs d'origine aux sites, si le DOL est disponible.
     root = Path(__file__).resolve().parents[2]
     dol_path = root / "work" / "dol" / "GMSE01.dol"
     if dol_path.exists():

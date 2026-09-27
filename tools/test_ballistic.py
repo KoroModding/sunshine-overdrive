@@ -1,28 +1,27 @@
-"""Mesure de la gravité : arc balistique imposé, sans entrée ni contact au sol.
+"""Gravity measurement: imposed ballistic arc, no input and no ground contact.
 
-Pourquoi ce test existe
------------------------
-Mesurer une hauteur de saut en appuyant sur A est trompeur. La mesure dépend
-alors de trois choses étrangères à la physique : l'injection d'entrées (une
-course dont le taux de réussite varie), le type de saut déclenché (simple,
-double, triple — repérables à leur `vy` initiale), et le relief sous Mario.
-Constaté en pratique : une même hauteur de saut a donné 73,79 puis 96,60 selon
-l'endroit où Mario se trouvait, alors que l'impulsion de départ était
-rigoureusement la même (`vy` = 42,0).
+Why
+---
+Measuring jump height by pressing A is misleading. The result then depends on
+three things unrelated to physics: input injection (a race with a variable
+success rate), which jump fires (single, double, triple, identifiable by their
+initial `vy`), and the terrain under Mario. Observed: the same jump gave 73.79
+then 96.60 depending on where Mario stood, with the exact same initial impulse
+(`vy` = 42.0).
 
-Ce test supprime les trois. Mario est placé en altitude, sa vitesse verticale
-est écrite directement, et l'on observe l'arc. Il ne reste que l'intégrateur.
+This test removes all three. Mario is placed high up, his vertical speed is
+written directly, and the arc is observed. Only the integrator remains.
 
-Ce qui est mesuré
------------------
-- la **suite des vitesses verticales**, sous-pas par sous-pas : c'est la
-  gravité elle-même, et deux paliers doivent produire la même suite ;
-- le **nombre d'intégrations** jusqu'au sommet ;
-- la **hauteur du sommet**.
+Measured
+--------
+- per-substep vertical speed sequence (gravity itself; two tiers must produce
+  the same sequence);
+- number of integrations up to the apex;
+- apex height.
 
-Ces trois grandeurs sont indépendantes du terrain et de l'affichage. Si elles
-coïncident entre paliers, la physique est découplée de la cadence — et aucune
-retouche de `TJumpParams` ou des `.prm` ne se justifie.
+All three are independent of terrain and display. If they match between tiers,
+physics is decoupled from the frame rate and no change to `TJumpParams` or the
+`.prm` files is justified.
 
 Usage
 -----
@@ -47,18 +46,18 @@ GP_MARIO = 0x8040E0E8
 OFF_POS = 0x10
 OFF_VEL = 0xA4
 
-LAUNCH_HEIGHT = 2500.0  # assez haut pour que l'arc entier se déroule en l'air
+LAUNCH_HEIGHT = 2500.0  # high enough for the whole arc to happen in the air
 
 
 def arc(dolphin: Dolphin, clock: SubstepClock, mario: int,
         home: tuple[float, float, float], impulse: float, substeps: int):
-    """Impose une vitesse verticale en altitude et relève l'arc qui suit."""
+    """Impose a vertical speed high up and record the resulting arc."""
     launch = (home[0], home[1] + LAUNCH_HEIGHT, home[2])
     dolphin.write(mario + OFF_POS, struct.pack(">fff", *launch))
     dolphin.write(mario + OFF_VEL, struct.pack(">fff", 0.0, 0.0, 0.0))
     time.sleep(0.35)
 
-    # Replacer juste avant de lancer : la chute a commencé pendant l'attente.
+    # Reposition right before launch: the fall started during the wait.
     dolphin.write(mario + OFF_POS, struct.pack(">fff", *launch))
     dolphin.write(mario + OFF_VEL, struct.pack(">fff", 0.0, impulse, 0.0))
 
@@ -69,8 +68,8 @@ def arc(dolphin: Dolphin, clock: SubstepClock, mario: int,
 
     samples, valid = clock.sample_while(substeps, probe)
 
-    # Ne garder qu'une valeur par changement : le sondage est bien plus rapide
-    # que la simulation, il voit chaque valeur des centaines de fois.
+    # Polling is far faster than the simulation and sees each value hundreds
+    # of times; keep one entry per change.
     speeds: list[float] = []
     for _, vy in samples:
         if not speeds or vy != speeds[-1]:

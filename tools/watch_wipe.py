@@ -1,7 +1,7 @@
-"""Cadence pendant les volets HX : champs VI/s et images/s par tranche de 0,25 s,
-avec le minuteur HX (0x803F43FC) et la routine de volet active (0x803F43E0).
+"""Frame rate during HX wipes: VI fields/s and frames/s per 0.25 s slice, with
+the HX timer (0x803F43FC) and the active wipe routine (0x803F43E0).
 
-    python tools/watch_wipe.py [secondes]      journal dans work/wipe.log
+    python tools/watch_wipe.py [secondes]      log in work/wipe.log
 """
 from __future__ import annotations
 import sys, time

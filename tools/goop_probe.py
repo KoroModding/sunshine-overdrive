@@ -1,9 +1,9 @@
-"""Sonde du module goop pendant un nettoyage : la copie d'affichage suit-elle le masque ?
+"""Probe of the goop module during cleaning: does the display copy track the mask?
 
-Pour la couche sous Mario, toutes les ~40 ms : nombre de texels où la copie D
-en RAM diffère de tente3x3(masque) de plus de 2 (texel (0,0) exclu), nombre de
-texels « goop » (> 127) du masque, état de la zone marquée par les tampons
-(dframes, rectangle) et octet (0,0) de D. Journal dans work/goop-probe.log.
+For the layer under Mario, every ~40 ms: number of texels where the copy D in
+RAM differs from tent3x3(mask) by more than 2 (texel (0,0) excluded), number
+of "goop" texels (> 127) in the mask, state of the stamp-marked area (dframes,
+rectangle) and byte (0,0) of D. Logged to work/goop-probe.log.
 
     python tools/goop_probe.py [secondes]
 """

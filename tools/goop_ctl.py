@@ -1,11 +1,11 @@
-"""État et interrupteurs du module goop lissée (tools/fixes/goop), jeu en cours.
+"""Status and switches of the smoothed-goop module (tools/fixes/goop), game running.
 
-    python tools/goop_ctl.py                 état : config, couches, mémoire
-    python tools/goop_ctl.py smooth on|off   copie lissée affichée ou non
-    python tools/goop_ctl.py soft on|off     bord fondu ou non
-    python tools/goop_ctl.py model on|off    zone recalculée autour des tâches modèle ou non
-Les interrupteurs vivent en RAM (0x80002F84 / 0x80002F85 / 0x80002F98, 0 = actif) :
-effet à l'image suivante, perdus au redémarrage.
+    python tools/goop_ctl.py                 status: config, layers, memory
+    python tools/goop_ctl.py smooth on|off   show the smoothed copy or not
+    python tools/goop_ctl.py soft on|off     soft edge or not
+    python tools/goop_ctl.py model on|off    recompute areas around model tasks or not
+The switches live in RAM (0x80002F84 / 0x80002F85 / 0x80002F98, 0 = enabled):
+they take effect on the next frame and are lost on restart.
 """
 from __future__ import annotations
 import struct, sys

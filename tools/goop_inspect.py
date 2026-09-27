@@ -1,50 +1,50 @@
-"""Inspection, en lecture seule, des couches de goop (TPollutionLayer) et de
-leurs matériaux J3D sur le jeu en cours, jusqu'à la display list GX.
+"""Read-only inspection of the goop layers (TPollutionLayer) and their J3D
+materials in the running game, down to the GX display list.
 
-But : savoir exactement ce que le GPU reçoit pour dessiner la goop (TEV,
-alpha compare, blend, texgen, texture) avant de toucher quoi que ce soit à
-son affichage. L'outil n'écrit JAMAIS dans la mémoire du jeu.
+Goal: know exactly what the GPU receives to draw the goop (TEV, alpha compare,
+blend, texgen, texture) before changing anything about how it is displayed.
+The tool NEVER writes to game memory.
 
-Chaîne suivie (vérifiée au désassembleur du DOL US, voir la fin de ce texte)
------------------------------------------------------------------------------
-    TPollutionLayer (vtable 0x803C2160, sous-classes Wall*/Wave)
+Pointer chain (verified in the US DOL disassembly)
+--------------------------------------------------
+    TPollutionLayer (vtable 0x803C2160, subclasses Wall*/Wave)
       +0x24 J3DModelData*        +0x28 J3DModel*      +0x2C MActor*
-      +0x30 u16 type             +0x54 u8* masque      +0x58 ResTIMG*
-    J3DModelData : +0x24 u16 nb matériaux, +0x28 J3DMaterial**,
-                   +0xAC J3DTexture* (+0 u16 nb, +4 ResTIMG[] de 0x20 octets),
-                   +0xB4 JUTNameTab* des matériaux
-    J3DModel     : +0x04 J3DModelData*, +0x80 J3DMatPacket[] (pas 0x48)
-    J3DMatPacket : +0x10 drapeaux (bit 0 = verrouillé), +0x30 J3DDisplayListObj*,
+      +0x30 u16 type             +0x54 u8* mask        +0x58 ResTIMG*
+    J3DModelData : +0x24 u16 material count, +0x28 J3DMaterial**,
+                   +0xAC J3DTexture* (+0 u16 count, +4 ResTIMG[] of 0x20 bytes),
+                   +0xB4 material JUTNameTab*
+    J3DModel     : +0x04 J3DModelData*, +0x80 J3DMatPacket[] (stride 0x48)
+    J3DMatPacket : +0x10 flags (bit 0 = locked), +0x30 J3DDisplayListObj*,
                    +0x38 J3DMaterial*, +0x40 J3DTexture*
-    J3DDisplayListObj : +0 tampon actif, +4 tampon de réserve, +8 taille
-                   utile, +0xC capacité (deux tampons, permutés par beginDL)
-    J3DMaterial  : +0x20 couleur, +0x24 texgen, +0x28 TEV, +0x2C indirect,
-                   +0x30 PE, +0x38 J3DMaterialAnm*, +0x3C DL partagée (nulle
-                   sauf modèle créé avec le drapeau 0x20000)
-    J3DPEBlockFull : +0x04 fog*, +0x08 u16 indice alpha compare (table
-                   0x80407150, 3 octets comp0/op/comp1), +0x0A ref0, +0x0B ref1,
-                   +0x0C..0x0F blend type/src/dst/logic, +0x10 u16 indice
-                   zmode (table 0x80407450), +0x12 zcomploc, +0x13 dither
-    J3DTevBlock4 : +0x1C nb étages, +0x1D étages (2 mots BP bruts par étage)
+    J3DDisplayListObj : +0 active buffer, +4 spare buffer, +8 used size,
+                   +0xC capacity (two buffers, swapped by beginDL)
+    J3DMaterial  : +0x20 color, +0x24 texgen, +0x28 TEV, +0x2C indirect,
+                   +0x30 PE, +0x38 J3DMaterialAnm*, +0x3C shared DL (null
+                   unless the model was created with flag 0x20000)
+    J3DPEBlockFull : +0x04 fog*, +0x08 u16 alpha compare index (table
+                   0x80407150, 3 bytes comp0/op/comp1), +0x0A ref0, +0x0B ref1,
+                   +0x0C..0x0F blend type/src/dst/logic, +0x10 u16 zmode
+                   index (table 0x80407450), +0x12 zcomploc, +0x13 dither
+    J3DTevBlock4 : +0x1C stage count, +0x1D stages (2 raw BP words per stage)
 
-La display list d'un matériau n'est PAS celle du fichier BMD : elle est
-fabriquée à l'exécution par J3DMaterial::makeDisplayList (0x802DAF28) à partir
-des blocs, dans le J3DDisplayListObj du paquet, puis appelée telle quelle par
-J3DMaterial::load (0x802DB08C) → callDL (0x802ED8D8).
+A material's display list is NOT the one from the BMD file: it is built at
+runtime by J3DMaterial::makeDisplayList (0x802DAF28) from the blocks, into the
+packet's J3DDisplayListObj, then called as-is by J3DMaterial::load (0x802DB08C)
+-> callDL (0x802ED8D8).
 
 Usage
 -----
-    python tools/goop_inspect.py                  toutes les couches de goop
-    python tools/goop_inspect.py --layer N        seulement la N-ième
-    python tools/goop_inspect.py --model ADDR     un J3DModel ou J3DModelData
-    python tools/goop_inspect.py --mario          le modèle de Mario
-    python tools/goop_inspect.py --list-models    les J3DModel en mémoire
-Options : --no-dl (pas de décodage de DL), --hex (DL brute en plus),
-          --mat N (un seul matériau).
+    python tools/goop_inspect.py                  all goop layers
+    python tools/goop_inspect.py --layer N        only the N-th one
+    python tools/goop_inspect.py --model ADDR     one J3DModel or J3DModelData
+    python tools/goop_inspect.py --mario          Mario's model
+    python tools/goop_inspect.py --list-models    J3DModels in memory
+Options: --no-dl (no DL decoding), --hex (raw DL as well),
+         --mat N (a single material).
 
-Décodage GX : BP (0x61), XF (0x10), CP (0x08), NOP. Les champs sont ceux de
-la documentation du matériel telle que reprise par Dolphin (BPMemory.h,
-XFMemory.h). La valeur brute est toujours affichée à côté du décodage.
+GX decoding: BP (0x61), XF (0x10), CP (0x08), NOP. Fields follow the hardware
+documentation as used by Dolphin (BPMemory.h, XFMemory.h). The raw value is
+always printed next to the decoding.
 """
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ from symbols import SymbolTable  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 MAP = ROOT / "work" / "maps" / "us.map"
 
-# --- adresses GMSE01 --------------------------------------------------------
+# GMSE01 addresses
 
 LAYER_VTABLES = {
     0x803C2160: "TPollutionLayer",
@@ -73,13 +73,11 @@ LAYER_VTABLES = {
 VT_J3DMODEL = 0x803E115C
 VT_J3DMODELDATA = 0x803E1178
 VT_PEBLOCK_FULL = 0x803E0968
-VT_TEVBLOCK4 = 0x803E0AB0        # +0x1C nb étages, +0x1D étages (8 o : 2 mots BP)
-ALPHACMP_TABLE = 0x80407150      # j3dAlphaCmpTable : 3 octets par entrée
-ZMODE_TABLE = 0x80407450         # j3dZModeTable    : 3 octets par entrée
+VT_TEVBLOCK4 = 0x803E0AB0        # +0x1C stage count, +0x1D stages (8 bytes: 2 BP words)
+ALPHACMP_TABLE = 0x80407150      # j3dAlphaCmpTable: 3 bytes per entry
+ZMODE_TABLE = 0x80407450         # j3dZModeTable:    3 bytes per entry
 GP_MARIO = 0x8040E0E8            # TMario* ; +0x3A8 M3UModel* ; +0x8 J3DModel*
 MEM1_END = 0x81800000
-
-# --- tables GX --------------------------------------------------------------
 
 CMP = ["NEVER", "LESS", "EQUAL", "LEQUAL", "GREATER", "NEQUAL", "GEQUAL", "ALWAYS"]
 AOP = ["AND", "OR", "XOR", "XNOR"]
@@ -110,7 +108,7 @@ for _k in range(4):
     KCSEL[0x18 + _k] = f"K{_k}_B"
     KCSEL[0x1C + _k] = f"K{_k}_A"
 TG_TYPE = ["REGULAR", "EMBOSS", "COLOR0", "COLOR1", "?4", "?5", "?6", "?7"]
-# énumérations de l'API GX (champs J3DTexCoord), distinctes du codage XF
+# GX API enums (J3DTexCoord fields), distinct from the XF encoding
 API_TG_TYPE = ["MTX3x4", "MTX2x4"] + [f"BUMP{i}" for i in range(8)] + ["SRTG"]
 API_TG_SRC = (["POS", "NRM", "BINRM", "TANGENT"] + [f"TEX{i}" for i in range(8)]
               + [f"TEXCOORD{i}" for i in range(7)] + ["COLOR0", "COLOR1"])
@@ -126,10 +124,8 @@ def s11(v: int) -> int:
     return v - 0x800 if v & 0x400 else v
 
 
-# --- décodage BP ------------------------------------------------------------
-
 def _texmap_reg(reg: int) -> tuple[str, int] | None:
-    """(nature, texmap) pour les registres de texture 0x80–0xBB."""
+    """(kind, texmap) for texture registers 0x80-0xBB."""
     groups = ["MODE0", "MODE1", "IMAGE0", "IMAGE1", "IMAGE2", "IMAGE3", "TLUT"]
     for base, first in ((0x80, 0), (0xA0, 4)):
         off = reg - base
@@ -275,8 +271,6 @@ def decode_bp(reg: int, v: int, mask: int | None = None) -> str:
     return "(registre BP non décodé)"
 
 
-# --- décodage XF ------------------------------------------------------------
-
 def _f(u: int) -> float:
     return struct.unpack(">f", struct.pack(">I", u))[0]
 
@@ -343,8 +337,6 @@ def decode_xf(addr: int, values: list[int]) -> list[str]:
     return out
 
 
-# --- parcours d'une display list -------------------------------------------
-
 def decode_dl(data: bytes) -> list[str]:
     out: list[str] = []
     i, n, mask = 0, len(data), None
@@ -398,8 +390,6 @@ def decode_dl(data: bytes) -> list[str]:
     return out
 
 
-# --- lecture des structures --------------------------------------------------
-
 class Inspector:
     def __init__(self, d: Dolphin, show_dl: bool, show_hex: bool, only_mat: int | None):
         self.d = d
@@ -425,8 +415,6 @@ class Inspector:
                 return raw[k:] if k else raw
         return f"0x{vt:08X}"
 
-    # -- balayage ---------------------------------------------------------
-
     def scan(self, targets: set[int]) -> list[tuple[int, int]]:
         mem = self.d.read(0x80000000, 0x1800000)
         found = []
@@ -449,8 +437,6 @@ class Inspector:
                     and self.d.u32(mdl) == VT_J3DMODEL and self.d.u32(mdl + 4) == md):
                 out.append((addr, name))
         return out
-
-    # -- affichage --------------------------------------------------------
 
     def restimg(self, t: int, label: str) -> None:
         d = self.d
@@ -506,11 +492,11 @@ class Inspector:
                   "   (champs SRT : d'après la décomp, non vérifiés)")
 
     def tev_block(self, blk: int) -> None:
-        """Étages TEV tels que stockés dans le bloc : chaque J3DTevStage est la
-        copie brute des deux mots BP (0xC0+2s couleur, 0xC1+2s alpha) que
-        load() recopie dans la DL. Offsets vérifiés pour J3DTevBlock4 seulement
-        (load__12J3DTevBlock4Fv 0x802D8544 : +0x0C ordre, +0x1D étages,
-        +0x3E couleurs S10, +0x5E couleurs K)."""
+        """TEV stages as stored in the block: each J3DTevStage is the raw copy
+        of the two BP words (0xC0+2s color, 0xC1+2s alpha) that load() copies
+        into the DL. Offsets verified for J3DTevBlock4 only
+        (load__12J3DTevBlock4Fv 0x802D8544: +0x0C order, +0x1D stages,
+        +0x3E S10 colors, +0x5E K colors)."""
         d = self.d
         if d.u32(blk) != VT_TEVBLOCK4:
             return

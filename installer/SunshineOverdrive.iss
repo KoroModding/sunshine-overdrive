@@ -1,18 +1,18 @@
-; Sunshine Overdrive — installateur Windows (Inno Setup 6)
+; Sunshine Overdrive Windows installer (Inno Setup 6)
 ;
-; Installe le profil de jeu Dolphin deliver\GMSE01.ini dans
-; <dossier utilisateur de Dolphin>\GameSettings\GMSE01.ini.
-;   - détection du dossier utilisateur : registre de Dolphin
-;     (HKCU\Software\Dolphin Emulator\UserConfigPath), puis %APPDATA%, puis
-;     Documents ; modifiable (Dolphin portable : dossier « User » à côté de
-;     Dolphin.exe) ;
-;   - un GMSE01.ini préexistant qui n'est pas le nôtre est mis de côté
-;     (GMSE01.ini.avant-sunshine-overdrive) et restauré à la désinstallation ;
-;   - aucun droit administrateur ; désinstallation depuis les Paramètres ;
-;   - /DOLPHINDIR="chemin" impose le dossier (installation silencieuse :
+; Installs the Dolphin game profile deliver\GMSE01.ini to
+; <Dolphin user folder>\GameSettings\GMSE01.ini.
+;   - user folder detection: Dolphin registry key
+;     (HKCU\Software\Dolphin Emulator\UserConfigPath), then %APPDATA%, then
+;     Documents; editable (portable Dolphin: "User" folder next to
+;     Dolphin.exe);
+;   - a pre-existing GMSE01.ini that is not ours is set aside
+;     (GMSE01.ini.avant-sunshine-overdrive) and restored on uninstall;
+;   - no admin rights; uninstall from Windows Settings;
+;   - /DOLPHINDIR="path" forces the folder (silent install:
 ;     /VERYSILENT /SUPPRESSMSGBOXES /DOLPHINDIR="...").
 ;
-; Construction : ISCC.exe /DAppVer=1.4.0 installer\SunshineOverdrive.iss
+; Build: ISCC.exe /DAppVer=1.4.0 installer\SunshineOverdrive.iss
 
 #ifndef AppVer
   #define AppVer "1.4.0"

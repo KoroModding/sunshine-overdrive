@@ -1,42 +1,42 @@
-"""Injection d'entrées manette par écriture dans l'objet `TMarioGamePad`.
+"""Controller input injection by writing into the `TMarioGamePad` object.
 
-Permet de piloter Mario depuis un script, sans manette physique, sans envoyer
-de frappes à la fenêtre de Dolphin et sans lui voler le focus. C'est ce qui
-rend la batterie de tests entièrement automatisable.
+Drives Mario from a script without a physical controller, without sending
+keystrokes to Dolphin's window and without stealing its focus. This is what
+makes the test suite fully automatable.
 
-Structure de `TMarioGamePad` (dérivée de `JUTGamePad`)
-------------------------------------------------------
-Les offsets ont été relevés dans le code, pas devinés :
+`TMarioGamePad` layout (derived from `JUTGamePad`)
+--------------------------------------------------
+Offsets read from the code, not guessed:
 
-    +0x18  u32  boutons **maintenus**      (`updateMeaning` y teste la croix)
-    +0x1C  u32  boutons **nouvellement pressés** (front)
-    +0x2C  f32  gâchette analogique
-    +0xA8  f32  stick principal X, dans [-1, 1]   (`checkController`, ×128)
-    +0xAC  f32  stick principal Y, dans [-1, 1]
-    +0xDC  u16  « meaning » — interprétation calculée par le jeu
+    +0x18  u32  **held** buttons         (`updateMeaning` tests the D-pad here)
+    +0x1C  u32  **newly pressed** buttons (edge)
+    +0x2C  f32  analog trigger
+    +0xA8  f32  main stick X, in [-1, 1]   (`checkController`, x128)
+    +0xAC  f32  main stick Y, in [-1, 1]
+    +0xDC  u16  "meaning" -- interpretation computed by the game
 
-Vérifié expérimentalement : écrire seulement `+0x18` ne fait **rien**, écrire
-`+0x1C` fait sauter Mario. Le saut se déclenche donc sur le front, pas sur le
-maintien — ce qui confirme l'attribution des deux champs.
+Verified experimentally: writing only `+0x18` does **nothing**, writing
+`+0x1C` makes Mario jump. The jump triggers on the edge, not the hold, which
+confirms which field is which.
 
-Pourquoi un martèlement
------------------------
-Le jeu réécrit l'objet à chaque image depuis la vraie manette
-(`TMarioGamePad::read`). Une écriture unique serait donc écrasée avant d'être
-lue. Un fil d'arrière-plan réécrit les valeurs en continu : à ~400 000
-écritures par seconde contre une relecture par image, les valeurs injectées
-sont en place quand `TMario::checkController` les consulte.
+Why hammering
+-------------
+The game rewrites the object every frame from the real controller
+(`TMarioGamePad::read`), so a single write would be overwritten before being
+read. A background thread rewrites the values continuously: at ~400,000
+writes per second against one reread per frame, the injected values are in
+place when `TMario::checkController` reads them.
 
-C'est une course, pas un verrou : elle est gagnée très largement, mais elle
-reste une course. Les tests doivent donc mesurer un résultat (hauteur atteinte,
-distance parcourue) plutôt que supposer qu'une image précise a vu l'entrée.
+It is a race, not a lock: won by a wide margin, but still a race. Tests must
+measure an outcome (height reached, distance covered) rather than assume a
+given frame saw the input.
 
 Usage
 -----
     with Pad(dolphin) as pad:
-        pad.stick(0.0, 1.0)      # avant toute
+        pad.stick(0.0, 1.0)      # full forward
         time.sleep(1.0)
-        pad.tap("A")             # saut
+        pad.tap("A")             # jump
         pad.neutral()
 """
 
@@ -53,7 +53,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from dolphin import Dolphin  # noqa: E402
 
 GP_MARIO = 0x8040E0E8
-OFF_MARIO_GAMEPAD = 0x4FC  # TMario::mGamePad — `stw r4, 0x4fc(r3)` dans setGamePad
+OFF_MARIO_GAMEPAD = 0x4FC  # TMario::mGamePad -- `stw r4, 0x4fc(r3)` in setGamePad
 
 OFF_HELD = 0x18
 OFF_PRESSED = 0x1C
@@ -61,7 +61,7 @@ OFF_ANALOG = 0x2C
 OFF_STICK_X = 0xA8
 OFF_STICK_Y = 0xAC
 
-# Masques de boutons de la manette GameCube (PAD_BUTTON_* de la bibliothèque).
+# GameCube controller button masks (SDK PAD_BUTTON_*).
 BUTTONS = {
     "LEFT": 0x0001,
     "RIGHT": 0x0002,
@@ -77,22 +77,21 @@ BUTTONS = {
     "START": 0x1000,
 }
 
-# Durée d'un front de pression.
+# Press edge duration.
 #
-# Le martèlement est une course : à chaque image, le jeu remet le pad à zéro
-# depuis la vraie manette, puis le consulte un peu plus tard. L'injection ne
-# « gagne » que si une écriture tombe entre les deux. Une fenêtre d'une seule
-# image ne laisse donc qu'une ou deux chances, ce qui est insuffisant —
-# mesuré : un front de 50 ms ne déclenche pas le saut de façon fiable.
+# Hammering is a race: every frame the game resets the pad from the real
+# controller, then reads it a little later. Injection only "wins" if a write
+# lands in between. A one-frame window gives only one or two chances, which is
+# not enough -- measured: a 50 ms edge does not trigger the jump reliably.
 #
-# 200 ms couvrent 6 images à 30 FPS et 12 à 60 FPS, ce qui rend la perte
-# improbable. Les fronts surnuméraires sont sans effet : Mario est déjà en
-# l'air et le jeu ignore l'entrée.
+# 200 ms covers 6 frames at 30 FPS and 12 at 60 FPS, making a miss unlikely.
+# Extra edges are harmless: Mario is already airborne and the game ignores
+# the input.
 PRESS_WINDOW = 0.200
 
 
 def mask_of(buttons: str | int | None) -> int:
-    """Convertit « A », « A+B » ou un entier en masque de boutons."""
+    """Convert "A", "A+B" or an int to a button mask."""
     if buttons is None:
         return 0
     if isinstance(buttons, int):
@@ -105,7 +104,7 @@ def mask_of(buttons: str | int | None) -> int:
 
 
 class Pad:
-    """Manette virtuelle martelée dans la mémoire du jeu."""
+    """Virtual controller hammered into game memory."""
 
     def __init__(self, dolphin: Dolphin | None = None) -> None:
         self.dolphin = dolphin or Dolphin()
@@ -125,15 +124,12 @@ class Pad:
         self._running = threading.Event()
         self._thread: threading.Thread | None = None
 
-    # -- cycle de vie ------------------------------------------------------
-
     def start(self) -> "Pad":
-        """Démarre le martèlement et **attend** qu'il écrive réellement.
+        """Start hammering and **wait** until it actually writes.
 
-        L'attente n'est pas une précaution de confort : localiser la MEM1
-        demande un balayage des régions du processus, qui prend plus de temps
-        qu'un front de pression ne dure. Sans elle, une commande émise juste
-        après `start()` serait perdue.
+        Locating MEM1 requires scanning the process regions, which takes
+        longer than a press edge lasts. Without the wait, a command issued
+        right after `start()` would be lost.
         """
         if self._thread is None:
             self._stop.clear()
@@ -149,7 +145,7 @@ class Pad:
         if self._thread:
             self._thread.join(timeout=2.0)
             self._thread = None
-        # Rendre la main à la vraie manette : remettre tout à neutre une fois.
+        # Hand control back to the real controller: reset to neutral once.
         self.dolphin.write(self.address + OFF_HELD, struct.pack(">II", 0, 0))
         self.dolphin.write(self.address + OFF_STICK_X, struct.pack(">ff", 0.0, 0.0))
 
@@ -159,13 +155,11 @@ class Pad:
     def __exit__(self, *exc) -> None:
         self.stop()
 
-    # -- fil de martèlement ------------------------------------------------
-
     def _hammer(self) -> None:
-        # Connexion distincte : le handle Win32 est partagé sans risque, mais
-        # une instance par fil évite tout entrelacement d'état. Sa construction
-        # rebalaie les régions du processus — d'où le signal de démarrage, émis
-        # seulement une fois la première écriture faite.
+        # Separate connection: sharing the Win32 handle is safe, but one
+        # instance per thread avoids interleaved state. Constructing it
+        # rescans the process regions, hence the start signal, set only after
+        # the first write.
         dolphin = Dolphin(self.dolphin.pid)
         base = self.address
         dolphin.write(base + OFF_HELD, struct.pack(">II", 0, 0))
@@ -174,31 +168,28 @@ class Pad:
             pressed = self._pressed if time.perf_counter() < self._pressed_until else 0
             dolphin.write(base + OFF_HELD, struct.pack(">II", self._held, pressed))
 
-            # Le stick et la gâchette ne sont réécrits que s'ils servent : une
-            # boucle plus courte martèle plus vite, ce qui augmente les chances
-            # de gagner la course sur les boutons.
+            # Stick and trigger are only rewritten when in use: a shorter loop
+            # hammers faster, improving the odds of winning the race on
+            # buttons.
             x, y = self._stick
             if x or y:
                 dolphin.write(base + OFF_STICK_X, struct.pack(">ff", x, y))
             if self._analog:
                 dolphin.write(base + OFF_ANALOG, struct.pack(">f", self._analog))
 
-    # -- commandes ---------------------------------------------------------
-
     def hold(self, buttons: str | int) -> None:
-        """Maintient des boutons (sans front)."""
+        """Hold buttons (no edge)."""
         self._held = mask_of(buttons)
 
     def press(self, buttons: str | int, window: float = PRESS_WINDOW) -> None:
-        """Émet un front de pression borné, puis maintient les boutons.
+        """Emit a bounded press edge, then keep the buttons held.
 
-        Le front ne dure que `window` : au-delà, seul le maintien subsiste.
-        C'est essentiel et non cosmétique. Répéter le front à chaque image
-        revient à appuyer à nouveau sur A dès que Mario touche le sol, ce qui
-        déclenche un enchaînement double/triple saut. Mesuré : avec un front
-        permanent, la hauteur d'un même saut variait de 73,79 à 140,0 selon
-        l'essai, et `vy max` sautait entre trois valeurs discrètes (41, 42, 52)
-        correspondant à trois types de saut différents.
+        The edge only lasts `window`; after that only the hold remains. This
+        matters: repeating the edge every frame means pressing A again as
+        soon as Mario lands, which chains double/triple jumps. Measured: with
+        a permanent edge, the height of the same jump varied from 73.79 to
+        140.0 between runs, and `vy max` jumped between three discrete values
+        (41, 42, 52) matching three different jump types.
         """
         mask = mask_of(buttons)
         self._pressed = mask
@@ -206,7 +197,7 @@ class Pad:
         self._held |= mask
 
     def tap(self, buttons: str | int, window: float = PRESS_WINDOW) -> None:
-        """Front de pression puis relâchement immédiat."""
+        """Press edge, then immediate release."""
         self.press(buttons, window)
         time.sleep(window)
         self.release(buttons)
@@ -215,11 +206,11 @@ class Pad:
         self._held = 0 if buttons is None else self._held & ~mask_of(buttons)
 
     def stick(self, x: float, y: float) -> None:
-        """Stick principal, composantes dans [-1, 1]. Y positif = vers l'avant."""
+        """Main stick, components in [-1, 1]. Positive Y = forward."""
         self._stick = (float(x), float(y))
 
     def analog(self, value: float) -> None:
-        """Gâchette analogique, dans [0, 1]."""
+        """Analog trigger, in [0, 1]."""
         self._analog = float(value)
 
     def neutral(self) -> None:
@@ -230,20 +221,20 @@ class Pad:
         self._analog = 0.0
 
     def settle(self, duration: float = 0.8) -> None:
-        """Remet tout au neutre et laisse le jeu le constater.
+        """Reset everything to neutral and let the game notice.
 
-        Indispensable avant une pression : le jeu tient sa propre mémoire de
-        l'état précédent de la manette pour détecter les fronts. Sans quelques
-        images de neutre, une pression injectée juste après le démarrage du
-        martèlement n'est pas vue comme un front — vérifié expérimentalement,
-        c'est la différence entre un saut et rien du tout.
+        Required before a press: the game keeps its own copy of the previous
+        controller state to detect edges. Without a few neutral frames, a
+        press injected right after hammering starts is not seen as an edge --
+        verified experimentally, it is the difference between a jump and
+        nothing.
         """
         self.neutral()
         time.sleep(duration)
 
 
 def _main(argv: list[str]) -> int:
-    """Démonstration : fait sauter Mario et rapporte la hauteur atteinte."""
+    """Demo: make Mario jump and report the height reached."""
     dolphin = Dolphin()
     mario = dolphin.u32(GP_MARIO)
     y_address = mario + 0x14

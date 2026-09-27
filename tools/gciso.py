@@ -1,25 +1,25 @@
-"""Lecture d'une image disque GameCube (GCM/ISO) : en-tête, FST, extraction du DOL.
+"""Read a GameCube disc image (GCM/ISO): header, FST, DOL extraction.
 
-Format documenté par YAGCD (Yet Another GameCube Documentation), chapitre 13.
-Tout est big-endian.
+Format documented in YAGCD (Yet Another GameCube Documentation), chapter 13.
+Everything is big-endian.
 
-Disposition de l'image
-----------------------
-    0x000  bootinfo   : identifiants du disque
-    0x400  bi2        : paramètres de boot (« bi2.bin »)
-    0x420  u32        : offset du fichier main.dol dans l'image
-    0x424  u32        : offset de la FST (File String Table)
-    0x428  u32        : taille de la FST
-    0x42C  u32        : taille maximale de la FST (multi-disque)
+Image layout
+------------
+    0x000  bootinfo   : disc identifiers
+    0x400  bi2        : boot parameters ("bi2.bin")
+    0x420  u32        : offset of main.dol in the image
+    0x424  u32        : offset of the FST (File String Table)
+    0x428  u32        : FST size
+    0x42C  u32        : maximum FST size (multi-disc)
 
-Usage en ligne de commande
---------------------------
-    python gciso.py header <iso>          affiche l'en-tête
-    python gciso.py dol    <iso> <sortie> extrait main.dol
-    python gciso.py fst    <iso>          liste l'arborescence des fichiers
-    python gciso.py extract <iso> <chemin-dans-iso> <sortie>
+Command line
+------------
+    python gciso.py header <iso>          print the header
+    python gciso.py dol    <iso> <output> extract main.dol
+    python gciso.py fst    <iso>          list the file tree
+    python gciso.py extract <iso> <path-in-iso> <output>
 
-Voir docs/03-outillage.md pour le rôle de ce module dans le projet.
+See docs/03-outillage.md for the role of this module in the project.
 """
 
 from __future__ import annotations
@@ -29,12 +29,10 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-# Constante placée en 0x1C de tout disque GameCube valide. Sert de garde-fou :
-# elle distingue une image GCM d'une image Wii (magic 0x5D1C9EA3 en 0x18) ou
-# d'un fichier quelconque.
+# Present at 0x1C on every valid GameCube disc. Tells a GCM image apart from a
+# Wii image (magic 0x5D1C9EA3 at 0x18) or an arbitrary file.
 GAMECUBE_MAGIC = 0xC2339F3D
 
-# Décalages fixes de l'en-tête disque.
 OFF_GAME_ID = 0x000
 OFF_MAGIC = 0x01C
 OFF_TITLE = 0x020
@@ -45,9 +43,9 @@ OFF_FST_SIZE = 0x428
 
 @dataclass(frozen=True)
 class DiscHeader:
-    """En-tête d'une image disque GameCube."""
+    """GameCube disc image header."""
 
-    game_id: str  # p.ex. « GMSE01 » : GMS = Sunshine, E = NTSC-U, 01 = Nintendo
+    game_id: str  # e.g. "GMSE01": GMS = Sunshine, E = NTSC-U, 01 = Nintendo
     maker: str
     version: int
     title: str
@@ -57,7 +55,7 @@ class DiscHeader:
 
     @property
     def region(self) -> str:
-        """Région déduite du 4e caractère de l'identifiant de jeu."""
+        """Region derived from the 4th character of the game ID."""
         return {
             "E": "NTSC-U (Amérique du Nord)",
             "P": "PAL (Europe)",
@@ -68,19 +66,19 @@ class DiscHeader:
 
 @dataclass(frozen=True)
 class FstEntry:
-    """Une entrée de la File String Table : fichier ou répertoire."""
+    """A File String Table entry: file or directory."""
 
     path: str
     is_dir: bool
-    offset: int  # offset dans l'image (fichiers uniquement)
-    size: int  # taille en octets (fichiers uniquement)
+    offset: int  # offset in the image (files only)
+    size: int  # size in bytes (files only)
 
 
 def read_header(iso: Path) -> DiscHeader:
-    """Lit et valide l'en-tête d'une image disque.
+    """Read and validate a disc image header.
 
-    Lève ValueError si le magic GameCube est absent — mieux vaut échouer ici
-    que produire silencieusement des offsets absurdes plus loin.
+    Raises ValueError if the GameCube magic is missing, rather than silently
+    producing nonsense offsets further down.
     """
     with iso.open("rb") as f:
         raw = f.read(0x440)
@@ -110,10 +108,10 @@ def read_header(iso: Path) -> DiscHeader:
 
 
 def dol_size(iso: Path, dol_offset: int) -> int:
-    """Calcule la taille du main.dol.
+    """Size of main.dol.
 
-    L'en-tête disque ne la stocke pas : il faut la déduire en prenant le plus
-    grand (offset + taille) parmi les 18 sections déclarées dans l'en-tête DOL.
+    The disc header does not store it: it is the largest (offset + size) among
+    the 18 sections declared in the DOL header.
     """
     with iso.open("rb") as f:
         f.seek(dol_offset)
@@ -129,7 +127,7 @@ def dol_size(iso: Path, dol_offset: int) -> int:
 
 
 def extract_dol(iso: Path, out: Path) -> int:
-    """Extrait main.dol de l'image vers `out`. Retourne la taille écrite."""
+    """Extract main.dol to `out`. Returns the number of bytes written."""
     header = read_header(iso)
     size = dol_size(iso, header.dol_offset)
 
@@ -143,16 +141,16 @@ def extract_dol(iso: Path, out: Path) -> int:
 
 
 def read_fst(iso: Path) -> list[FstEntry]:
-    """Décode la FST et retourne la liste à plat des fichiers et répertoires.
+    """Decode the FST into a flat list of files and directories.
 
-    Structure d'une entrée (12 octets) :
-        +0  u8   type : 0 = fichier, 1 = répertoire
-        +1  u24  offset du nom dans la table de chaînes
-        +4  u32  fichier -> offset des données ; répertoire -> index du parent
-        +8  u32  fichier -> taille ; répertoire -> index de la 1re entrée suivante
+    Entry layout (12 bytes):
+        +0  u8   type: 0 = file, 1 = directory
+        +1  u24  name offset in the string table
+        +4  u32  file -> data offset; directory -> parent index
+        +8  u32  file -> size; directory -> index of the next entry after it
 
-    La table de chaînes commence juste après les `count` entrées ; `count` est
-    lu dans le champ +8 de l'entrée racine (index 0).
+    The string table starts right after the `count` entries; `count` is read
+    from field +8 of the root entry (index 0).
     """
     header = read_header(iso)
     with iso.open("rb") as f:
@@ -166,9 +164,9 @@ def read_fst(iso: Path) -> list[FstEntry]:
         return strings[offset : strings.index(b"\0", offset)].decode("latin-1")
 
     entries: list[FstEntry] = []
-    # Pile des répertoires ouverts : (chemin, index de fin). Une entrée de
-    # répertoire déclare l'index auquel son contenu s'arrête, ce qui permet de
-    # reconstruire l'arborescence en une seule passe linéaire.
+    # Stack of open directories: (path, end index). A directory entry declares
+    # the index where its contents end, so the tree is rebuilt in one linear
+    # pass.
     stack: list[tuple[str, int]] = [("", count)]
 
     for i in range(1, count):
@@ -190,7 +188,7 @@ def read_fst(iso: Path) -> list[FstEntry]:
 
 
 def extract_file(iso: Path, disc_path: str, out: Path) -> int:
-    """Extrait un fichier de l'image par son chemin FST (p.ex. « /default.dol »)."""
+    """Extract a file from the image by its FST path (e.g. "/default.dol")."""
     wanted = disc_path if disc_path.startswith("/") else "/" + disc_path
     for entry in read_fst(iso):
         if not entry.is_dir and entry.path.lower() == wanted.lower():

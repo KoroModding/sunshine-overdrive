@@ -1,32 +1,31 @@
-"""Effets sonores : vitesse des sons d'animation, et journal de diagnostic.
+"""Sound effects: speed passed to animation sounds, and a diagnostic log.
 
-1. Vitesse transmise aux sons d'animation — MAnmSound::animeLoop, 0x80012E9C
-   Tous les acteurs (TLiveActor::updateAnmSound, TMario::animSound, TYoshi,
-   TKoopa, TEnemyManager…) passent à MAnmSound::animeLoop la vitesse
-   d'animation du contrôleur de trame (J3DFrameCtrl+0xC, mFrameRate), qui
-   vaut ~SMSGetAnmFrameRate() : 2.0 à 30 FPS, 0.5 à 120 FPS. JAIAnimeSound
-   s'en sert pour moduler la hauteur et le volume de chaque son d'animation :
-       hauteur = base + unk15 × (vitesse − 1) / 32
-       volume  = base + 2 × unk18 × (vitesse − 1)
-   (Graffito-Decomp, JAIAnimation.cpp : setSpeedModifySound, playActorAnimSound).
-   À 120 FPS, tous les sons d'animation à modulation sortaient donc plus
-   graves et moins forts. La routine multiplie la vitesse par M avant
-   l'appel : la vitesse retrouve sa valeur à 30 FPS. Effet secondaire : la
-   fenêtre d'anticipation au rebouclage d'animation (mCurrentTime + vitesse)
-   redevient celle du jeu d'origine en trames d'animation, soit 4 appels au
-   lieu d'un à 120 FPS — un son de début de boucle peut partir ≤ 1,5 trame
-   d'animation (~25 ms) plus tôt. NON VÉRIFIÉ à l'oreille.
+1. Speed passed to animation sounds, MAnmSound::animeLoop, 0x80012E9C
+   Every actor (TLiveActor::updateAnmSound, TMario::animSound, TYoshi,
+   TKoopa, TEnemyManager…) passes MAnmSound::animeLoop the animation speed of
+   its frame controller (J3DFrameCtrl+0xC, mFrameRate), which is
+   ~SMSGetAnmFrameRate(): 2.0 at 30 FPS, 0.5 at 120 FPS. JAIAnimeSound uses it
+   to modulate the pitch and volume of each animation sound:
+       pitch  = base + unk15 × (speed − 1) / 32
+       volume = base + 2 × unk18 × (speed − 1)
+   (Graffito-Decomp, JAIAnimation.cpp: setSpeedModifySound, playActorAnimSound).
+   At 120 FPS every modulated animation sound therefore came out lower and
+   quieter. The routine multiplies the speed by M before the call, restoring
+   the 30 FPS value. Side effect: the look-ahead window at the animation loop
+   wrap (mCurrentTime + speed) is again the original game's in animation
+   frames, i.e. 4 calls instead of one at 120 FPS; a loop-start sound may fire
+   ≤ 1.5 animation frames (~25 ms) early. NOT VERIFIED by ear.
 
-2. Journal des démarrages de sons — DIAGNOSTIC, JAIBasic::startSoundBasic
-   Point d'entrée unique : startSoundActor, startSoundDirectID,
-   startSoundIndirectID et startSoundActorReturnHandle y aboutissent tous.
-   L'entrée (mflr r0) est détournée vers une routine qui écrit (id du son,
-   compteur de passages JAI JAIBasic+0x20) dans un anneau de 64 entrées :
-       0x80002C00  u32  index suivant (état)
-       0x80002C08  64 × (u32 id, u32 trame)
-   Lu par tools/watch_se_rates.py. Aucun état n'est écrit par le profil.
+2. Sound start log, DIAGNOSTIC, JAIBasic::startSoundBasic
+   Single entry point: startSoundActor, startSoundDirectID,
+   startSoundIndirectID and startSoundActorReturnHandle all end up there.
+   The entry (mflr r0) is redirected to a routine that writes (sound id, JAI
+   pass counter JAIBasic+0x20) into a 64-entry ring:
+       0x80002C00  u32  next index (state)
+       0x80002C08  64 × (u32 id, u32 frame)
+   Read by tools/watch_se_rates.py. The profile writes no state.
 
-Zone : 0x80002A00 – 0x80002AFF (code) ; anneau 0x80002C00 – 0x80002E07.
+Range: 0x80002A00 – 0x80002AFF (code); ring 0x80002C00 – 0x80002E07.
 """
 
 from __future__ import annotations
@@ -43,18 +42,18 @@ CAVE_LOG = 0x80002A40
 RING = 0x80002C00
 RING_ENTRIES = 64
 
-MARIO_RETURN = 0x80285824      # retour de bl animeLoop dans TMario::animSound
-SPEED_PROBE = 0x80002A30       # f32, dernière vitesse transmise (état, diagnostic)
+MARIO_RETURN = 0x80285824      # return address of bl animeLoop in TMario::animSound
+SPEED_PROBE = 0x80002A30       # f32, last speed passed (state, diagnostic)
 SITE_ANM = 0x80012E9C          # bl JAIAnimeSound::setAnimSoundVec
 SET_ANIM_SOUND_VEC = 0x80300164
-SITE_LOG = 0x803020AC          # mflr r0, entrée de startSoundBasic
+SITE_LOG = 0x803020AC          # mflr r0, entry of startSoundBasic
 
 ORIGINAL = {SITE_ANM: 0x482ED2C9, SITE_LOG: 0x7C0802A6}
 
-# Entrée : arguments de setAnimSoundVec (f1 = trame, f2 = vitesse). Saut
-# terminal : LR pointe toujours dans animeLoop. Touchés : r11, r12, f0, cr0.
-# Adresse de retour de l'appelant d'animeLoop : 0xC(r1) (animeLoop a sauvé LR
-# en 4(r1 d'entrée) puis fait stwu r1, -8(r1)).
+# Entry: setAnimSoundVec arguments (f1 = animation frame, f2 = speed). Tail
+# jump: LR still points into animeLoop. Clobbers r11, r12, f0, cr0.
+# Return address of animeLoop's caller: 0xC(r1) (animeLoop saved LR at
+# 4(entry r1), then did stwu r1, -8(r1)).
 ASM_ANM = f"""
     lwz    r12, 0xC(r1)
     lis    r11, {MARIO_RETURN >> 16:#x}
@@ -71,8 +70,8 @@ probe:
     b      {SET_ANIM_SOUND_VEC:#x}
 """
 
-# Entrée de startSoundBasic : r3 = JAIBasic*, r4 = id ; r3–r10 préservés.
-# Touchés : r0 (réécrit par mflr avant de reprendre), r11, r12, cr0.
+# startSoundBasic entry: r3 = JAIBasic*, r4 = id; r3–r10 preserved.
+# Clobbers r0 (rewritten by mflr before resuming), r11, r12, cr0.
 ASM_LOG = f"""
     lis    r12, 0x8000
     lwz    r11, 0x2C00(r12)

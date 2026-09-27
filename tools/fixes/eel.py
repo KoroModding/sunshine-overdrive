@@ -1,29 +1,28 @@
-"""Boss anguille (TBossEel, Eely-Mouth) : débit d'animation constant 0,5 par sous-pas.
+"""Eel boss (TBossEel, Eely-Mouth): constant animation rate 0.5 per substep.
 
-Extrait seul de tools/fixes/actors.py (groupe 3), mêmes sites, même routine
-CONST2 que tools/fixes/birds.py (constante 2,0 en 0x80002400, code en
-0x80002410 — mots identiques, le contrôle de conflit de build_profile les
-accepte).
+Extracted on its own from tools/fixes/actors.py (group 3), same sites, same
+CONST2 routine as tools/fixes/birds.py (constant 2.0 at 0x80002400, code at
+0x80002410; identical words, which build_profile's conflict check accepts).
 
-Défaut (DOL US, audit 2026-09-27, trois sites relus à la main)
+Defect (US DOL, 2026-09-27 audit, three sites re-read by hand)
 =============================================================
-19 sites, tous dans des TNerveBossEel*::execute ou ExecBackNerve_Sub, de forme
+19 sites, all in TNerveBossEel*::execute or ExecBackNerve_Sub, of the form
     bl SMSGetAnmFrameRate ; lfs f0, 0.25 (0x80410D5C) ; li r4, 0 ;
     lwz r3, 0x74(r31) ; fmuls f31, f0, f1 ; bl MActor::getFrameCtrl ;
     stfs f31, 0xC(r3)
-L'animation principale (+0x74) avance PAR SOUS-PAS : seul calcAnm du boss en
-0x800D37C0, sous `clrlwi. r0, r30, 31` (flag 0x1, 0x800D3710). Débit 0,25 ×
-anmRate = 0,5 par sous-pas à 30 FPS (60 trames/s), 0,125 à 120 FPS (15
-trames/s) : toutes les phases réglées sur la fin d'une animation (apparition,
-bouche ouverte, aspiration, mort…) 4× trop longues.
+The main animation (+0x74) advances PER SUBSTEP: the boss's only calcAnm is at
+0x800D37C0, under `clrlwi. r0, r30, 31` (flag 0x1, 0x800D3710). Rate 0.25 ×
+anmRate = 0.5 per substep at 30 FPS (60 animation frames/s), 0.125 at 120 FPS
+(15 animation frames/s): every phase timed on the end of an animation
+(appearance, mouth open, suction, death…) lasts 4× too long.
 
-Correctif : les 19 `bl SMSGetAnmFrameRate` → `bl CONST2` (2,0) : débit 0,5 par
-sous-pas à toute cadence, bit à bit celui du jeu d'origine. Même choix que BSE
+Fix: the 19 `bl SMSGetAnmFrameRate` → `bl CONST2` (2.0): rate 0.5 per substep
+at any frame rate, bit-identical to the original game. Same choice as BSE
 (getBossEelAnmFrameRate).
 
-Sans défaut (même audit) : TBossEelTooth, TBEelTears, TBEelTearsDrop, vortex,
-pièce-cœur. Non corrigé, cosmétique : fondu des yeux (0x800D641C, −0,01 par
-image) 4× trop rapide.
+No defect (same audit): TBossEelTooth, TBEelTears, TBEelTearsDrop, vortex,
+heart piece. Not fixed here: eye fade (fsubs at 0x800D641C, −0.01 per frame,
+4× too fast) — fixed by bosses.py ("eeleye", the lfs at 0x800D6414).
 """
 
 from __future__ import annotations

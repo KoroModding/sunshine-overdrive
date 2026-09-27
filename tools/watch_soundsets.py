@@ -1,28 +1,27 @@
-"""Mesure l'horloge des jeux de sons MSSetSound / MSSetSoundGrp (tools/fixes/soundsets.py).
+"""Measures the clock of the MSSetSound / MSSetSoundGrp sound sets (tools/fixes/soundsets.py).
 
-Parcourt les deux listes que MSound::mainLoop itère (0x8040CF20 : MSSetSound,
-0x8040CF14 : MSSetSoundGrp ; nœud : objet +0, suivant +0xC — lu dans
-mainLoop 0x80014E00…0x80014E44) et relève, pour chaque objet, l'horloge +0x54
-et son drapeau d'activité +0x58 sur une fenêtre de mesure.
+Walks the two lists MSound::mainLoop iterates (0x8040CF20: MSSetSound,
+0x8040CF14: MSSetSoundGrp; node: object +0, next +0xC, read in
+mainLoop 0x80014E00..0x80014E44) and records, for each object, the clock +0x54
+and its active flag +0x58 over a measurement window.
 
-L'horloge n'avance que pendant qu'un jeu est actif (+0x58 non nul) ; la
-cadence est rapportée au seul temps d'activité.
+The clock only advances while a set is active (+0x58 non-zero); the rate is
+computed over active time only.
 
-Compte aussi les DÉPARTS de son de chaque jeu : l'indice de tampon +0x59
-tourne d'un cran à chaque départ ; sondé toutes les ~2 ms. C'est la grandeur
-qui s'entend (répétitions du son d'impact du jet). Le nombre de départs dépend
-du geste ; l'ÉCART entre deux départs consécutifs, non : pour 0x6800,
-intervalle minimal 7 passages + aléa 0–6, soit 58–108 ms sans correctif
-(passages à 120/s) et 233–433 ms avec (30/s). Seuls les écarts < 1 s comptent
-(rafales continues).
+Also counts sound STARTS per set: the buffer index +0x59 advances by one on
+each start; polled every ~2 ms. This is what you hear (repeats of the spray
+impact sound). The number of starts depends on what the player does; the GAP
+between two consecutive starts does not: for 0x6800, minimum interval 7 passes
++ random 0-6, i.e. 58-108 ms without the fix (passes at 120/s) and 233-433 ms
+with it (30/s). Only gaps < 1 s count (continuous bursts).
 
-Horloge — attendu : ~30 incréments/s pour tout jeu actif avec le correctif, ~120/s sans
-lui (une fois par passage JAI). Un jeu inactif (+0x58 = 0) ne bouge pas : c'est
-normal, rien à juger.
+Clock, expected: ~30 ticks/s for any active set with the fix, ~120/s without
+(once per JAI pass). An inactive set (+0x58 = 0) does not move; that is
+normal.
 
 Usage
 -----
-    python tools/watch_soundsets.py [secondes]      (défaut 20) — pendant la mesure, arroser le sol avec FLUDD
+    python tools/watch_soundsets.py [secondes]      (défaut 20); spray the ground with FLUDD while it measures
 """
 
 from __future__ import annotations

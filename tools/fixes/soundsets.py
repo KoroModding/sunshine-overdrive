@@ -1,52 +1,51 @@
-"""Jeux de sons MSSetSound (FLUDD, graffiti, goop, colonnes) : horloge à 30 Hz.
+"""MSSetSound sound sets (FLUDD, graffiti, goop, pillars): 30 Hz clock.
 
-Défaut
+Defect
 ======
-MSound::mainLoop appelle, une fois par passage JAI (= par image rendue, 120/s à
-120 FPS), la méthode virtuelle frameLoopDyna de chaque MSSetSound et
-MSSetSoundGrp (0x80014E00 / 0x80014E28, entrée +0x14 de la vtable secondaire).
-Elle fait :
-    if (+0x58) +0x54 += 1        horloge du jeu de sons
-    +0xB8 = 0                    verrou « un départ par passage »
-Les paramètres des 9 jeux (MSSetSound::init : impact du jet de FLUDD 0x6800 /
-0x6801, nettoyage de graffiti 0x6809, goop, colonnes de feu et électriques,
-séchage 0x804, impact 0x6802, cri de la raie 0x899B) sont en passages à 30 Hz :
-intervalle minimal, durée d'un son unitaire, durée de modulation, écart de
-continuité, durée maximale de continuité. À 120 FPS l'horloge avance 4× trop
-vite et le verrou se rouvre 4× plus souvent : ces sons repartent jusqu'à 4×
-plus souvent, et leurs modulations s'écoulent 4× trop vite.
+MSound::mainLoop calls, once per JAI pass (= per rendered frame, 120/s at
+120 FPS), the virtual method frameLoopDyna of every MSSetSound and
+MSSetSoundGrp (0x80014E00 / 0x80014E28, entry +0x14 of the secondary vtable).
+It does:
+    if (+0x58) +0x54 += 1        sound set clock
+    +0xB8 = 0                    "one start per pass" latch
+The parameters of the 9 sets (MSSetSound::init: FLUDD spray impact 0x6800 /
+0x6801, graffiti cleaning 0x6809, goop, fire and electric pillars, drying
+0x804, impact 0x6802, manta cry 0x899B) are in 30 Hz passes: minimum interval,
+single-sound duration, modulation duration, continuity gap, maximum continuity
+duration. At 120 FPS the clock runs 4× too fast and the latch reopens 4× as
+often: these sounds restart up to 4× as often and their modulations elapse 4×
+too fast.
 
-Second chronomètre, le principal : l'ÂGE du son précédent, JAISound+0x14,
-incrémenté lui aussi à chaque passage JAI (~120/s). startSoundSetDyna le
-compare à l'intervalle minimal (+0x1D, + aléa +0x1E), à la durée unitaire
-(+0x1F), aux seuils des membres de groupe (+0x18 f32), à la durée de
-modulation (+0x28) et à l'écart de continuité (+0x3C). C'est lui qui fixe la
-cadence de répétition du son d'impact du jet (0x6800 : écart de continuité
-0, donc l'horloge +0x54 n'y est jamais active).
+Second timer, the main one: the AGE of the previous sound, JAISound+0x14, also
+incremented every JAI pass (~120/s). startSoundSetDyna compares it with the
+minimum interval (+0x1D, + random +0x1E), the single-sound duration (+0x1F),
+the group member thresholds (+0x18 f32), the modulation duration (+0x28) and
+the continuity gap (+0x3C). It sets the repeat rate of the spray impact sound
+(0x6800: continuity gap 0, so the +0x54 clock is never active there).
 
-Correctifs
-==========
-1. Âge ramené en passages à 30 Hz : les 4 lectures `lwz rD, 0x14(rA)` de
-   chaque instance de startSoundSetDyna (MSSetSound 0x8001B454, MSSetSoundGrp
-   0x8001BE24, même code décalé de 0x9D0) sont détournées vers
+Fixes
+=====
+1. Age brought back to 30 Hz passes: the 4 `lwz rD, 0x14(rA)` reads in each
+   instance of startSoundSetDyna (MSSetSound 0x8001B454, MSSetSoundGrp
+   0x8001BE24, same code shifted by 0x9D0) are redirected to
    `bl SHIFT ; lwz rD, 0x14(rA) ; srw rD, rD, r12 ; b site+4`.
-   Fonctions non feuilles (LR sauvé au prologue, restauré depuis la pile) :
-   le bl en milieu de fonction est sans conséquence. r11/r12 n'y sont jamais
-   utilisés (vérifié sur tout le listing).
+   Non-leaf functions (LR saved in the prologue, restored from the stack):
+   the bl mid-function is harmless. r11/r12 are never used there (checked
+   over the whole listing).
 
-2. frameLoopDyna n'est exécutée qu'un passage sur M (M = 2 × littéral 0x804167B8,
-lu à l'exécution) : quand (JAIBasic::basic+0x20) & (M − 1) == 0. Ce compteur
-est incrémenté par JAIBasic::processFrameWork (0x80301D84), une fois par
-passage — relevé en jeu : 119,99/s. Il est incrémenté APRÈS les frameLoopDyna
-du même passage, la phase est donc stable. Si JAIBasic::basic est nul, la
-méthode s'exécute normalement.
+2. frameLoopDyna runs only one pass in M (M = 2 × literal 0x804167B8, read at
+   run time): when (JAIBasic::basic+0x20) & (M − 1) == 0. That counter is
+   incremented by JAIBasic::processFrameWork (0x80301D84), once per pass,
+   measured in game at 119.99/s. It is incremented AFTER the frameLoopDyna
+   calls of the same pass, so the phase is stable. If JAIBasic::basic is null,
+   the method runs normally.
 
-Routines (zone 0x80001C00 – 0x80001DFF, libre : hx s'arrête vers 0x80001ACC) :
-    SHIFT  r12 = log2(M) ; touche r12.
-    GATE   cr0.eq = « exécuter ce passage » ; touche r11, r12, cr0.
-    stub   (fonction feuille, LR à garder) : mflr r10 ; bl GATE ; mtlr r10 ;
-           bnelr ; lbz r0, 0x58(r3) (instruction d'origine) ; b site+4.
-           r10 est volatil et n'est pas un argument (seul r3 l'est).
+Routines (range 0x80001C00 – 0x80001DFF, free: hx ends around 0x80001ACC):
+    SHIFT  r12 = log2(M); clobbers r12.
+    GATE   cr0.eq = "run this pass"; clobbers r11, r12, cr0.
+    stub   (leaf function, LR must be kept): mflr r10 ; bl GATE ; mtlr r10 ;
+           bnelr ; lbz r0, 0x58(r3) (original instruction) ; b site+4.
+           r10 is volatile and not an argument (only r3 is).
 """
 
 from __future__ import annotations
@@ -59,9 +58,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from build_caves import assemble, words, listing  # noqa: E402
 
 CAVE_START = 0x80001C00
-CAVE_END = 0x80001E00          # exclusif
+CAVE_END = 0x80001E00          # exclusive
 GATE = 0x80001C00
-JAIBASIC_BASIC = 0x8040E430    # JAIBasic::basic (us.map), lu en jeu : 0x805F39D8
+JAIBASIC_BASIC = 0x8040E430    # JAIBasic::basic (us.map), read in game: 0x805F39D8
 
 SITES = (
     0x80016014,                # MSSetSoundTL<MSSetSoundGrp>::frameLoopDyna
@@ -69,7 +68,7 @@ SITES = (
 )
 LBZ_R0_58 = 0x88030058         # lbz r0, 0x58(r3)
 DYNA_GRP_DELTA = 0x9D0         # startSoundSetDyna<Grp> - startSoundSetDyna<MSSetSound>
-AGE_READS = {                  # site (instance MSSetSound) : lecture de JAISound+0x14
+AGE_READS = {                  # site (MSSetSound instance): read of JAISound+0x14
     0x8001B504: "lwz r4, 0x14(r4)",
     0x8001B66C: "lwz r23, 0x14(r3)",
     0x8001B750: "lwz r4, 0x14(r4)",

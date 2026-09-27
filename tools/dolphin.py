@@ -1,41 +1,40 @@
-"""Accès à la mémoire émulée d'un Dolphin en cours d'exécution.
+"""Access to the emulated memory of a running Dolphin.
 
-Dolphin projette la MEM1 de la GameCube dans son propre espace d'adressage.
-Un processus tiers peut donc la lire et l'écrire par `ReadProcessMemory` /
-`WriteProcessMemory`, sans que Dolphin ait à coopérer et sans passer par son
-débogueur graphique. C'est le principe de `dolphin-memory-engine`, réimplémenté
-ici pour pouvoir scripter les mesures.
+Dolphin maps the GameCube MEM1 into its own address space, so a third-party
+process can read and write it with `ReadProcessMemory` / `WriteProcessMemory`,
+without Dolphin cooperating and without going through its GUI debugger. Same
+principle as `dolphin-memory-engine`, reimplemented here to script measurements.
 
-Localisation de la MEM1
------------------------
-L'adresse de la projection change à chaque lancement (ASLR) et Dolphin en crée
-plusieurs vues alias (« fastmem »). On balaie donc les régions du processus à
-la recherche d'une projection assez grande, et on la valide en lisant
-**l'en-tête de disque GameCube** qui se trouve toujours en tête de MEM1 :
+Locating MEM1
+-------------
+The mapping address changes on every launch (ASLR) and Dolphin creates several
+alias views ("fastmem"). We scan the process regions for a large enough
+mapping and validate it by reading the **GameCube disc header**, which always
+sits at the start of MEM1:
 
-    0x80000000  identifiant du jeu, 6 octets ASCII — « GMSE01 »
+    0x80000000  game ID, 6 ASCII bytes -- "GMSE01"
     0x8000001C  magic 0xC2339F3D
 
-Cette validation est décisive : elle distingue la vraie MEM1 de toute autre
-projection de taille comparable, et confirme du même coup quelle image est
-chargée. Une région qui ne la passe pas est ignorée.
+This check is decisive: it separates the real MEM1 from any other mapping of
+similar size, and confirms which image is loaded. Regions that fail it are
+ignored.
 
-Conventions d'adressage
------------------------
-Les adresses manipulées sont celles vues par le PowerPC : `0x80000000` à
-`0x81800000` (24 Mio de MEM1, cachée). Le décalage dans la projection est
-l'adresse masquée par `0x01FFFFFF`. Tout est **big-endian**.
+Addressing
+----------
+Addresses are PowerPC addresses: `0x80000000` to `0x81800000` (24 MiB of
+cached MEM1). The offset in the mapping is the address masked with
+`0x01FFFFFF`. Everything is **big-endian**.
 
-Usage en ligne de commande
---------------------------
-    python dolphin.py info                         processus, MEM1, jeu chargé
+Command line
+------------
+    python dolphin.py info                         process, MEM1, loaded game
     python dolphin.py read   <adresse> [octets]
     python dolphin.py u32    <adresse> [nombre]
     python dolphin.py f32    <adresse> [nombre]
     python dolphin.py write  <adresse> <octets-hex>
-    python dolphin.py deref  <adresse> [offset…]   suit une chaîne de pointeurs
+    python dolphin.py deref  <adresse> [offset…]   follow a pointer chain
 
-Voir docs/03-outillage.md.
+See docs/03-outillage.md.
 """
 
 from __future__ import annotations
@@ -45,8 +44,6 @@ import ctypes.wintypes as wt
 import struct
 import sys
 
-# --- API Win32 --------------------------------------------------------------
-
 PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_VM_READ = 0x0010
 PROCESS_VM_WRITE = 0x0020
@@ -55,9 +52,8 @@ PROCESS_VM_OPERATION = 0x0008
 MEM_COMMIT = 0x1000
 MEM_MAPPED = 0x40000
 
-# MEM1 de la GameCube : 24 Mio. Dolphin réserve davantage par vue ; on accepte
-# donc toute projection au moins aussi grande, la validation par l'en-tête
-# faisant le tri.
+# GameCube MEM1: 24 MiB. Dolphin reserves more per view, so any mapping at
+# least this large is accepted; the header check does the filtering.
 MEM1_SIZE = 0x1800000
 MEM1_BASE = 0x80000000
 MEM1_MASK = 0x01FFFFFF
@@ -97,7 +93,7 @@ _k32.VirtualQueryEx.argtypes = [
 
 
 def find_dolphin_pid() -> int:
-    """PID du premier processus nommé « Dolphin ». Lève RuntimeError sinon."""
+    """PID of the first process named "Dolphin". Raises RuntimeError otherwise."""
     import subprocess
 
     output = subprocess.run(
@@ -112,7 +108,7 @@ def find_dolphin_pid() -> int:
 
 
 class Dolphin:
-    """Une instance de Dolphin, avec sa MEM1 localisée et validée."""
+    """A Dolphin instance with its MEM1 located and validated."""
 
     def __init__(self, pid: int | None = None) -> None:
         self.pid = pid if pid is not None else find_dolphin_pid()
@@ -129,10 +125,8 @@ class Dolphin:
             )
         self.mem1, self.game_id = self._locate_mem1()
 
-    # -- localisation ------------------------------------------------------
-
     def _raw_read(self, address: int, length: int) -> bytes | None:
-        """Lecture brute dans l'espace du processus. None si la lecture échoue."""
+        """Raw read in the process address space. None on failure."""
         buffer = (ctypes.c_char * length)()
         read = ctypes.c_size_t(0)
         ok = _k32.ReadProcessMemory(
@@ -141,10 +135,10 @@ class Dolphin:
         return buffer.raw[: read.value] if ok and read.value == length else None
 
     def _locate_mem1(self) -> tuple[int, str]:
-        """Balaie les projections et retient celle qui porte un en-tête GameCube.
+        """Scan mappings and keep the one carrying a GameCube header.
 
-        Plusieurs vues alias la même mémoire partagée : la première validée
-        convient, une écriture dans l'une est visible dans toutes.
+        Several views alias the same shared memory: the first validated one
+        will do, a write to one is visible in all of them.
         """
         info = MEMORY_BASIC_INFORMATION64()
         address = 0
@@ -174,18 +168,14 @@ class Dolphin:
             )
         return candidates[0]
 
-    # -- traduction d'adresse ---------------------------------------------
-
     def _host(self, address: int) -> int:
-        """Adresse hôte correspondant à une adresse PowerPC de MEM1."""
+        """Host address for a PowerPC MEM1 address."""
         if not (MEM1_BASE <= address < MEM1_BASE + MEM1_SIZE):
             raise ValueError(
                 f"0x{address:08X} hors MEM1 "
                 f"(0x{MEM1_BASE:08X}–0x{MEM1_BASE + MEM1_SIZE:08X})"
             )
         return self.mem1 + (address & MEM1_MASK)
-
-    # -- lectures ----------------------------------------------------------
 
     def read(self, address: int, length: int) -> bytes:
         data = self._raw_read(self._host(address), length)
@@ -209,15 +199,13 @@ class Dolphin:
         return struct.unpack(">f", self.read(address, 4))[0]
 
     def deref(self, address: int, *offsets: int) -> int:
-        """Suit une chaîne de pointeurs : `deref(gp, 0x10, 0x4)`."""
+        """Follow a pointer chain: `deref(gp, 0x10, 0x4)`."""
         value = self.u32(address)
         for offset in offsets:
             if not (MEM1_BASE <= value < MEM1_BASE + MEM1_SIZE):
                 raise ValueError(f"pointeur nul ou invalide : 0x{value:08X}")
             value = self.u32(value + offset)
         return value
-
-    # -- écritures ---------------------------------------------------------
 
     def write(self, address: int, data: bytes) -> None:
         written = ctypes.c_size_t(0)

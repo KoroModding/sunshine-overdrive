@@ -1,34 +1,34 @@
-"""Validation du profil 120 FPS livré dans `deliver/`.
+"""Validation of the 120 FPS profile shipped in `deliver/`.
 
-Le profil a deux moitiés — l'overclock VI côté hôte, les écritures de cadence
-côté jeu — et chacune est muette sur l'autre. Ce script les contrôle séparément puis
-rend un verdict, pour qu'une moitié manquante ne passe pas pour un succès.
+The profile has two halves -- the host-side VI overclock and the game-side
+frame rate writes -- and neither reports on the other. This script checks them
+separately, then gives a verdict, so a missing half is not taken for success.
 
-Ce qui est contrôlé
--------------------
-1. **Côté jeu, par lecture directe.** Le littéral en 0x804167B8 doit valoir
-   2.0f, et la présentation doit consommer exactement un champ VI par image —
-   ce que donnent deux correctifs différents, qui ne doivent pas se cumuler.
-2. **Côté hôte, par mesure.** `VIOverclock` ne se lit pas dans la MEM1 : il n'y
-   est pas. Son seul témoin observable est la cadence de présentation. Un VI à
-   2× donne 119,88 images par seconde, un VI au taux nominal plafonne à 59,94.
-   C'est ce qui distingue « 120 FPS » de « mi-vitesse ».
-3. **La vitesse de simulation**, qui est l'objet de tout le projet : 120 sous-pas
-   par seconde, quelle que soit la cadence d'affichage.
+What is checked
+---------------
+1. **Game side, by direct read.** The literal at 0x804167B8 must be 2.0f, and
+   presentation must consume exactly one VI field per frame -- which two
+   different fixes provide, and they must not stack.
+2. **Host side, by measurement.** `VIOverclock` cannot be read from MEM1: it
+   is not there. Its only observable trace is the presentation rate. A VI at
+   2x gives 119.88 frames per second; a VI at nominal rate caps at 59.94. This
+   is what separates "120 FPS" from "half speed".
+3. **Simulation speed**, the point of the whole project: 120 substeps per
+   second regardless of display rate.
 
-Le critère
-----------
-La simulation doit tourner à 120 Hz ± 2 %. C'est la grandeur qui décide, pas le
-nombre d'images : un jeu qui affiche 119 images par seconde en n'en simulant que
-60 tourne à mi-vitesse, et c'est précisément le piège du palier 120.
+Criterion
+---------
+Simulation must run at 120 Hz +/- 2 %. That is the deciding quantity, not the
+frame count: a game showing 119 frames per second while simulating only 60
+runs at half speed, which is exactly the trap of the 120 tier.
 
-Attente du jeu
---------------
-Le profil ne prenant effet qu'à l'amorçage, ce script sait **attendre** que le
-jeu démarre : il peut être lancé avant, puis l'utilisateur démarre la partie.
-Le critère d'arrivée exige une validité *stable* de `gpMarDirector` et
-`gpMarioOriginal` — un test instantané conclut « en jeu » pendant la démo
-d'attraction de l'écran titre (impasse relevée en session 3).
+Waiting for the game
+--------------------
+Since the profile only takes effect at boot, this script can **wait** for the
+game: start it first, then the user starts the game. Arrival requires
+`gpMarDirector` and `gpMarioOriginal` to be *stably* valid -- an instantaneous
+check concludes "in game" during the title screen attract demo (dead end
+found in session 3).
 
 Usage
 -----
@@ -58,12 +58,12 @@ OFF_DISPLAY = 0x1C
 OFF_RETRACE_COUNT = 0x4C
 
 SIM_HZ_TARGET = 120.0
-SIM_TOLERANCE = 0.02  # 2 % — au-delà, la vitesse de jeu est fausse
-STABLE_SECONDS = 3.0  # durée de validité continue exigée avant de mesurer
+SIM_TOLERANCE = 0.02  # beyond 2 %, game speed is wrong
+STABLE_SECONDS = 3.0  # continuous validity required before measuring
 
 
 def connect(timeout: float) -> Dolphin:
-    """Attend qu'un Dolphin porte une MEM1 avec un jeu dedans."""
+    """Wait for a Dolphin whose MEM1 holds a game."""
     deadline = time.perf_counter() + timeout
     announced = False
     while True:
@@ -79,10 +79,10 @@ def connect(timeout: float) -> Dolphin:
 
 
 def wait_in_game(dolphin: Dolphin, timeout: float) -> int:
-    """Attend une partie en cours, stable `STABLE_SECONDS` d'affilée.
+    """Wait for a running game, stable for `STABLE_SECONDS` in a row.
 
-    Retourne l'adresse du TMarDirector. La stabilité est exigée parce que la
-    démo d'attraction de l'écran titre rend les deux pointeurs valides.
+    Returns the TMarDirector address. Stability is required because the title
+    screen attract demo makes both pointers valid.
     """
     deadline = time.perf_counter() + timeout
     stable_since = None
@@ -111,7 +111,7 @@ def wait_in_game(dolphin: Dolphin, timeout: float) -> int:
 
 
 def check_game_side(dolphin: Dolphin) -> tuple[bool, list[str]]:
-    """Les deux écritures de données sont-elles en place ?"""
+    """Are both data writes in place?"""
     literal = dolphin.f32(LITERAL_VSYNC)
     display = dolphin.u32(GP_APPLICATION + OFF_DISPLAY)
     lines = []
@@ -130,10 +130,10 @@ def check_game_side(dolphin: Dolphin) -> tuple[bool, list[str]]:
         ok = False
         lines.append(f"  [NON] TDisplay      invalide (0x{display:08X})")
     else:
-        # Deux correctifs mènent à un champ par image, et ils se cumulent :
-        # `waitForRetrace` consomme `count` champs par appel si l'attente
-        # finale est intacte, `count - 1` si elle a été neutralisée
-        # (docs/01-mecanismes.md § 3.1). Ce qui compte est le produit.
+        # Two fixes lead to one field per frame, and they stack:
+        # `waitForRetrace` consumes `count` fields per call if the final wait
+        # is intact, `count - 1` if it was removed (docs/01-mecanismes.md
+        # section 3.1). What matters is the combined result.
         count = dolphin.u16(display + OFF_RETRACE_COUNT)
         patched = dolphin.u32(PATCH_SITE_RETRACE) == NOP
         fields = count - 1 if patched else count

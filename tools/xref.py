@@ -1,31 +1,28 @@
-"""Références croisées : qui lit, écrit ou appelle une adresse donnée.
+"""Cross-references: who reads, writes or calls a given address.
 
-Le DOL n'a ni relocations ni table de symboles : il n'existe aucun index des
-références. Ce module reconstruit celui-ci en balayant les sections exécutables
-et en décodant les trois façons dont le code PowerPC produit par CodeWarrior
-désigne une adresse.
+The DOL has no relocations and no symbol table, so there is no reference
+index. This module rebuilds one by scanning the executable sections and
+decoding the three ways CodeWarrior-generated PowerPC code names an address.
 
-1. **Forme D relative aux petites données** — `lfs f0, -0x3e8(r2)`.
-   L'adresse visée est `base(rA) + déplacement-signé`, où r2 et r13 sont des
-   bases fixées une fois pour toutes par `__init_registers`. C'est la forme
-   utilisée pour tous les littéraux flottants, donc la seule qui compte pour ce
-   projet. Détection exacte, sans faux positifs.
+1. Small-data D-form: `lfs f0, -0x3e8(r2)`.
+   The target is `base(rA) + signed displacement`, where r2 and r13 are bases
+   set once by `__init_registers`. All float literals use this form, so it is
+   the one that matters for this project. Exact detection, no false positives.
 
-2. **Paire lis/addi ou lis/ori** — `lis r3, 0x8041 ; addi r3, r3, 0x4904`.
-   Utilisée pour les adresses hors portée des petites données. La détection
-   n'examine que des paires adjacentes travaillant sur le même registre ; un
-   compilateur qui intercale des instructions entre les deux moitiés échappe à
-   l'analyse. Toute paire trouvée est donc certaine, mais la liste peut être
-   incomplète — un résultat vide ne prouve rien.
+2. lis/addi or lis/ori pair: `lis r3, 0x8041 ; addi r3, r3, 0x4904`.
+   Used for addresses outside small-data range. Only adjacent pairs on the
+   same register are examined; if the compiler interleaves instructions
+   between the two halves, the reference is missed. Every pair found is
+   certain, but the list may be incomplete: an empty result proves nothing.
 
-3. **Branchements** — `bl fonction`. Portée relative au PC sur 26 ou 16 bits.
+3. Branches: `bl function`. PC-relative, 26 or 16 bits.
 
-Usage en ligne de commande
---------------------------
-    python xref.py <dol> <map> <adresse-ou-symbole>
+Command line
+------------
+    python xref.py <dol> <map> <address-or-symbol>
     python xref.py work/dol/GMSE01.dol work/maps/us.map 0x80414904
 
-Voir docs/03-outillage.md.
+See docs/03-outillage.md.
 """
 
 from __future__ import annotations
@@ -41,8 +38,8 @@ from dol import Dol  # noqa: E402
 from disasm import AnnotatedDisassembler, resolve  # noqa: E402
 from symbols import SymbolTable  # noqa: E402
 
-# Opcodes de forme D (déplacement signé 16 bits + registre de base) qui
-# accèdent à la mémoire ou calculent une adresse.
+# D-form opcodes (signed 16-bit displacement + base register) that access
+# memory or compute an address.
 _D_FORM = {
     14: "addi", 24: "ori",
     32: "lwz", 33: "lwzu", 34: "lbz", 35: "lbzu",
@@ -56,10 +53,10 @@ _D_FORM = {
 
 @dataclass(frozen=True)
 class Xref:
-    """Une référence trouvée vers l'adresse recherchée."""
+    """A reference to the searched address."""
 
-    address: int  # où se trouve l'instruction référençante
-    kind: str  # « sdata », « lis+lo » ou « branche »
+    address: int  # address of the referencing instruction
+    kind: str  # "sdata", "lis+lo" or "branche"
     detail: str
 
 
@@ -68,7 +65,7 @@ def _sign16(value: int) -> int:
 
 
 def find_xrefs(dol: Dol, symbols: SymbolTable, target: int) -> list[Xref]:
-    """Toutes les références à `target` trouvées dans les sections exécutables."""
+    """All references to `target` in the executable sections."""
     bases = AnnotatedDisassembler(dol, symbols)
     small_data = {2: bases.r2, 13: bases.r13}
 
@@ -79,16 +76,15 @@ def find_xrefs(dol: Dol, symbols: SymbolTable, target: int) -> list[Xref]:
             continue
         blob = dol.data[section.file_offset : section.file_offset + section.size]
 
-        # État de la dernière `lis` vue, par registre : permet de reconnaître la
-        # paire haute/basse à l'instruction suivante.
-        pending: dict[int, tuple[int, int]] = {}  # reg -> (adresse, moitié haute)
+        # Last `lis` seen per register, to match the high/low pair on the next
+        # instruction.
+        pending: dict[int, tuple[int, int]] = {}  # reg -> (address, high half)
 
         for offset in range(0, len(blob) - 3, 4):
             (word,) = struct.unpack_from(">I", blob, offset)
             here = section.address + offset
             opcode = word >> 26
 
-            # --- branchements ---------------------------------------------
             if opcode == 18:  # b / bl / ba / bla
                 displacement = word & 0x03FFFFFC
                 if displacement & 0x02000000:
@@ -101,7 +97,7 @@ def find_xrefs(dol: Dol, symbols: SymbolTable, target: int) -> list[Xref]:
                     )
                 continue
 
-            if opcode == 16:  # bc : branchement conditionnel
+            if opcode == 16:  # bc: conditional branch
                 displacement = word & 0xFFFC
                 if displacement & 0x8000:
                     displacement -= 0x10000
@@ -109,13 +105,11 @@ def find_xrefs(dol: Dol, symbols: SymbolTable, target: int) -> list[Xref]:
                     found.append(Xref(here, "branche", "bc"))
                 continue
 
-            # --- lis : mémorise la moitié haute ---------------------------
-            # lis rD, imm est addis rD, r0, imm : opcode 15 avec rA = 0.
+            # lis rD, imm is addis rD, r0, imm: opcode 15 with rA = 0.
             if opcode == 15 and ((word >> 16) & 0x1F) == 0:
                 pending[(word >> 21) & 0x1F] = (here, (word & 0xFFFF) << 16)
                 continue
 
-            # --- forme D --------------------------------------------------
             if opcode in _D_FORM:
                 rA = (word >> 16) & 0x1F
                 displacement = _sign16(word & 0xFFFF)
@@ -131,8 +125,8 @@ def find_xrefs(dol: Dol, symbols: SymbolTable, target: int) -> list[Xref]:
                         )
                 elif rA in pending:
                     high_address, high = pending[rA]
-                    # `ori` combine par OU logique (moitié basse non signée),
-                    # `addi` par addition signée : les deux formes existent.
+                    # `ori` combines by OR (unsigned low half), `addi` by
+                    # signed addition: both forms occur.
                     combined = (high | (word & 0xFFFF)) if opcode == 24 else (high + displacement)
                     if combined == target:
                         found.append(
@@ -144,10 +138,10 @@ def find_xrefs(dol: Dol, symbols: SymbolTable, target: int) -> list[Xref]:
                             )
                         )
 
-            # Toute écriture dans le registre invalide la `lis` en attente.
-            # On n'invalide que pour les formes D, seules décodées ici ; une
-            # instruction de forme X écrivant le registre passerait inaperçue,
-            # d'où l'avertissement d'incomplétude en tête de module.
+            # Any write to the register invalidates the pending `lis`. Only
+            # D-forms are decoded here; an X-form write to the register goes
+            # unnoticed, hence the incompleteness warning in the module
+            # docstring.
             if opcode in _D_FORM and opcode not in (36, 38, 44, 52, 54):
                 pending.pop((word >> 21) & 0x1F, None)
 

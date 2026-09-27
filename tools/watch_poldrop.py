@@ -1,17 +1,16 @@
-"""Gouttes de goop de Petey (TBPPolDrop, vtable 0x803B493C) : vitesse de
-l'étalement de la flaque, pour trancher « s'étale au ralenti ».
+"""Petey's goop drops (TBPPolDrop, vtable 0x803B493C): puddle spreading speed,
+to settle "spreads in slow motion".
 
-Lu dans le DOL (GMSE01) :
-- TBPPolDrop::perform 0x80098498 : +0x80 état (1 en vol, 2 posée), +0x84
-  compteur de passages (drapeau 0x1) ; en état 2, le MActor « tampon » +0x7C
-  est avancé par MActor::calcAnm (drapeau 0x2, une fois par image rendue),
-  puis dessiné dans le masque par TPollutionManager::stampModel (drapeau
-  0x200).
-- TBPPolDrop::move 0x8009870C : setBck du tampon à l'atterrissage, sans
+Read in the DOL (GMSE01):
+- TBPPolDrop::perform 0x80098498: +0x80 state (1 airborne, 2 landed), +0x84
+  pass counter (flag 0x1); in state 2 the "stamp" MActor +0x7C is advanced
+  by MActor::calcAnm (flag 0x2, once per rendered frame), then drawn into the
+  mask by TPollutionManager::stampModel (flag 0x200).
+- TBPPolDrop::move 0x8009870C: setBck on the stamp at landing, without
   setFrameRate.
 
-Frame ctrl 0 = *(*(MActor + 0x28)) + 4 ; J3DFrameCtrl : +0x6 début s16,
-+0x8 fin s16, +0xC débit f32, +0x10 trame f32.
+Frame ctrl 0 = *(*(MActor + 0x28)) + 4; J3DFrameCtrl: +0x6 start s16,
++0x8 end s16, +0xC rate f32, +0x10 frame f32.
 
     python tools/watch_poldrop.py [secondes]      (défaut 300)
 """
@@ -58,7 +57,7 @@ def main(argv: list[str]) -> int:
     print(f"{len(drops)} TBPPolDrop", flush=True)
     t0 = time.perf_counter()
     last = {p: None for p in drops}
-    spread = {}                    # p -> (t, image, trame) au passage en état 2
+    spread = {}                    # p -> (t, frame, anim frame, max anim frame) on entering state 2
     while time.perf_counter() - t0 < dur:
         img = d.u32(d.u32(JAI) + 0x20)
         now = time.perf_counter() - t0
@@ -79,7 +78,7 @@ def main(argv: list[str]) -> int:
                 ts, i0, f0, fmax = spread[p]
                 if fr > fmax:
                     spread[p] = (ts, i0, f0, fr)
-                elif fr < fmax or fr >= e - 0.01:          # fin ou bouclage
+                elif fr < fmax or fr >= e - 0.01:          # end or loop wrap
                     dt, di = now - ts, img - i0
                     print(f"      étalement : trames {f0:.1f} -> {fmax:.1f} en {dt:.2f} s, {di} images "
                           f"-> {(fmax - f0) / dt if dt else 0:.1f} trames/s, "

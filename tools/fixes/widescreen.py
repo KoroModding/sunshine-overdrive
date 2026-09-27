@@ -1,27 +1,27 @@
-"""Écran large 16:9 — code Gecko « Widescreen [gamemasterplc] » converti en [OnFrame].
+"""16:9 widescreen: the Gecko code "Widescreen [gamemasterplc]" converted to [OnFrame].
 
-Source : Sys/GameSettings/GMSE01.ini livré avec Dolphin (E:/Dolphin/Dolphin-x64),
-section [Gecko], recopié tel quel ci-dessous. Pas de retouche du contenu.
+Source: Sys/GameSettings/GMSE01.ini shipped with Dolphin (E:/Dolphin/Dolphin-x64),
+section [Gecko], copied verbatim below. Content unchanged.
 
-Pourquoi une conversion
-=======================
-La section [Gecko] n'a jamais chargé sur ce poste (docs/00-journal.md), et le
-gestionnaire de codes Gecko s'installe en 0x80001800–0x80003000 — la zone où
-vivent les routines du profil : l'activer les écraserait. Le code n'utilise
-que deux types, tous deux exprimables en écritures [OnFrame] :
-    04AAAAAA VVVVVVVV   écriture 32 bits de VVVVVVVV en 0x80AAAAAA ;
-    C2AAAAAA NNNNNNNN   insertion : N lignes de 8 octets d'assembleur, dont le
-                        dernier mot (00000000) reçoit le retour ; l'instruction
-                        en 0x80AAAAAA devient un saut vers le bloc.
-Le bloc C2 est posé dans la zone 0x80001E00–0x80001FFF (relevée nulle en jeu),
-son dernier mot remplacé par `b 0x80AAAAAA+4`. Les branchements internes des
-blocs sont relatifs et restent justes (bloc recopié d'un seul tenant).
+Why a conversion
+================
+The [Gecko] section has never loaded on this machine (docs/00-journal.md), and
+the Gecko code handler installs itself at 0x80001800–0x80003000, the range
+where the profile's routines live: enabling it would overwrite them. The code
+uses only two types, both expressible as [OnFrame] writes:
+    04AAAAAA VVVVVVVV   32-bit write of VVVVVVVV at 0x80AAAAAA;
+    C2AAAAAA NNNNNNNN   insertion: N 8-byte lines of assembly, whose last word
+                        (00000000) receives the return; the instruction at
+                        0x80AAAAAA becomes a branch to the block.
+The C2 block is placed in 0x80001E00–0x80001FFF (measured all-zero in game),
+its last word replaced by `b 0x80AAAAAA+4`. Branches inside the blocks are
+relative and stay correct (each block copied in one piece).
 
-Vérifié dans le DOL (2026-09-26) : aux 12 sites C2, l'instruction d'origine
-figure dans le bloc (le code la réexécute) ; les littéraux visés valent 600.0
-(largeurs → 800 / 700) et 4/3 en 0x80412408 (→ 16/9). Le code vise donc bien
-GMSE01. Effet visuel NON vérifié par nous : c'est le code de référence de
-Dolphin, repris à l'identique.
+Checked in the DOL (2026-09-26): at the 12 C2 sites, the original instruction
+is present in the block (the code re-executes it); the targeted literals are
+600.0 (widths → 800 / 700) and 4/3 at 0x80412408 (→ 16/9). So the code does
+target GMSE01. Visual effect NOT verified by us: this is Dolphin's reference
+code, reused as is.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from build_caves import assemble, words, listing  # noqa: E402
 
 CAVE_START = 0x80001E00
-CAVE_END = 0x80002000          # exclusif ; fader commence en 0x80002000
+CAVE_END = 0x80002000          # exclusive; fader starts at 0x80002000
 
 GECKO = """
 04416758 44480000
@@ -101,7 +101,7 @@ C2363138 00000009
 
 
 def parse() -> tuple[list[tuple[int, int]], list[tuple[int, list[int]]]]:
-    """(écritures 04, insertions C2 (site, mots du bloc))."""
+    """(04 writes, C2 inserts (site, block words))."""
     vals = [int(x, 16) for x in GECKO.split()]
     writes, inserts = [], []
     i = 0

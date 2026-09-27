@@ -1,152 +1,152 @@
-"""Volets HX (transitions d'écran) — portage de BetterSunshineEngine fps.cpp, l. 168–414.
+"""HX wipes (screen transitions) — port of BetterSunshineEngine fps.cpp, l. 168–414.
 
-Contexte
---------
-Les volets HX sont dessinés par TSMSFader::draw -> Hx_UpdateWipe (0x8013FDE0
-``bl Hx_UpdateWipe``), qui appelle la routine du volet via ``blrl`` entre deux
-``GXDrawDone`` (0x80181F80 / 0x80181F90). Ces routines émettent des commandes
-GX (GXBegin, écritures 0xCC008000) : elles tournent **une fois par image
-rendue**. Tout ce qu'elles comptent en « images » va donc M fois trop vite, avec
-M = 2 × f32@0x804167B8 (1 à 30 FPS, 2 à 60, 4 à 120), relu à **chaque** appel.
+Context
+-------
+HX wipes are drawn by TSMSFader::draw -> Hx_UpdateWipe (0x8013FDE0
+``bl Hx_UpdateWipe``), which calls the wipe routine through ``blrl`` between two
+``GXDrawDone`` (0x80181F80 / 0x80181F90). These routines emit GX commands
+(GXBegin, writes to 0xCC008000): they run **once per rendered frame**. Anything
+they count in "frames" therefore runs M times too fast, with
+M = 2 × f32@0x804167B8 (1 at 30 FPS, 2 at 60, 4 at 120), re-read on **every** call.
 
-État partagé des volets : bloc à 0x803F43C0 (``lis r3,0x803F ; addi 0x43C0``),
-dont le compte à rebours à +0x3C = **0x803F43FC** (Hx_TimerCountDown :
-``lwz r3,0x3c(r3) ; addi r0,r3,-1 ; stw r0,0(r4)``) — même adresse que BSE
+Shared wipe state: block at 0x803F43C0 (``lis r3,0x803F ; addi 0x43C0``),
+whose countdown at +0x3C = **0x803F43FC** (Hx_TimerCountDown:
+``lwz r3,0x3c(r3) ; addi r0,r3,-1 ; stw r0,0(r4)``) — same address as BSE
 ``HX_SetTimer``.
 
-Principe des correctifs (tous sans état sauf TEST4)
----------------------------------------------------
-* Durées entières : chaque ``stw rX, 0x3c(r31|r30)`` qui arme le compte à
-  rebours devient ``bl TIMER_Rx`` qui écrit (int)(rX × M) dans 0x803F43FC.
-* Incréments flottants par image : l'instruction ``fadds/fsubs fD, fA, fB``
-  est remplacée par ``bl`` vers un bouchon qui refait la même opération avec
-  l'incrément divisé par M. On garde ainsi la sémantique exacte de chaque site
-  (y compris quand M change en cours de volet) sans toucher aux littéraux
-  partagés du pool .sdata2.
-* Incréments entiers par image : ``addi r0, r3, imm`` devient ``bl`` vers
-  ``li r0, imm ; b INT_STEP`` qui calcule r0 = r3 + imm / (int)M.
-* Hx_MotionUpdate (0x80181D74) est remplacée intégralement (``b MOTION``,
-  comme SMS_PATCH_B de BSE) par la même intégration d'Euler au pas 1/M :
-  temps += 1/M, vitesse += accel/M, position += vitesse/M.
+Fix principles (all stateless except TEST4)
+-------------------------------------------
+* Integer durations: each ``stw rX, 0x3c(r31|r30)`` that arms the countdown
+  becomes ``bl TIMER_Rx``, which writes (int)(rX × M) to 0x803F43FC.
+* Per-frame float increments: the ``fadds/fsubs fD, fA, fB`` instruction is
+  replaced by a ``bl`` to a stub that redoes the same operation with the
+  increment divided by M. This keeps each site's exact semantics (including
+  when M changes mid-wipe) without touching the shared .sdata2 pool literals.
+* Per-frame integer increments: ``addi r0, r3, imm`` becomes ``bl`` to
+  ``li r0, imm ; b INT_STEP``, which computes r0 = r3 + imm / (int)M.
+* Hx_MotionUpdate (0x80181D74) is replaced entirely (``b MOTION``,
+  like BSE's SMS_PATCH_B) by the same Euler integration with step 1/M:
+  time += 1/M, velocity += accel/M, position += velocity/M.
 
-Registres : les bouchons n'utilisent que r12, f12, f13 (+ r0 en sortie pour
-INT_STEP). Aucune des fonctions Hx_Circle, Hx_GameOver, Hx_Test1, Hx_Test2,
-Hx_Test2R, Hx_Test4, Hx_Test5 ne mentionne r11, r12, f12 ni f13 (vérifié par
-grep sur leur désassemblage complet). Aucun bouchon ne modifie cr0 (aucune
-instruction à Rc=1, pas de comparaison), ce qui compte à 0x80181C7C..C8C où
-cr0 et r3 sont vivants.
+Registers: the stubs only use r12, f12, f13 (+ r0 as output for
+INT_STEP). None of Hx_Circle, Hx_GameOver, Hx_Test1, Hx_Test2,
+Hx_Test2R, Hx_Test4, Hx_Test5 mentions r11, r12, f12 or f13 (checked by
+grep over their full disassembly). No stub modifies cr0 (no Rc=1
+instruction, no compare), which matters at 0x80181C7C..C8C where
+cr0 and r3 are live.
 
-Sites (instruction d'origine -> effet) — confiance
+Sites (original instruction -> effect) — confidence
 ---------------------------------------------------
 CIRCLE (Hx_Circle)
-  0x80181B54  stw r0,0x3c(r31)   (li r0,0x19)  -> TIMER_R0      [BSE] haute
-  0x80181B78  stw r0,0x3c(r31)   (li r0,0x1E)  -> TIMER_R0      [BSE] haute
-  0x80181BBC  fadds f1,f2,f1     DE44 += 1/15 (fondu FrBufferMorf, borné à 1)
-                                 -> f1 = f2 + f1/M  ; f0 = 1.0 vivant, intact
-                                                                [AJOUT] haute
-  0x80181C7C  fadds f0,f1,f0     DE30 += 0.05  -> f0 = f1 + f0/M  [AJOUT] haute
-  0x80181C8C  addi r0,r3,0x180   u16 DE3C (alpha anneau 1)  -> r3+0x180/M [AJOUT]
-  0x80181CE0  fadds f0,f1,f0     DE34 += 0.12                     [AJOUT]
-  0x80181CF0  addi r0,r3,0xC0    u16 DE3E                         [AJOUT]
-  0x80181D44  fadds f0,f1,f0     DE38 += 0.25                     [AJOUT]
-  0x80181D54  addi r0,r3,0x80    u16 DE40                         [AJOUT]
-  Ces 7 accumulateurs par image (anneaux d'étoiles de Hxs2_Circle et fondu du
-  tampon) ne sont PAS traités par BSE : désaccord signalé, corrigés ici.
+  0x80181B54  stw r0,0x3c(r31)   (li r0,0x19)  -> TIMER_R0      [BSE] high
+  0x80181B78  stw r0,0x3c(r31)   (li r0,0x1E)  -> TIMER_R0      [BSE] high
+  0x80181BBC  fadds f1,f2,f1     DE44 += 1/15 (FrBufferMorf fade, clamped to 1)
+                                 -> f1 = f2 + f1/M  ; f0 = 1.0 live, untouched
+                                                                [ADDED] high
+  0x80181C7C  fadds f0,f1,f0     DE30 += 0.05  -> f0 = f1 + f0/M  [ADDED] high
+  0x80181C8C  addi r0,r3,0x180   u16 DE3C (ring 1 alpha)  -> r3+0x180/M [ADDED]
+  0x80181CE0  fadds f0,f1,f0     DE34 += 0.12                     [ADDED]
+  0x80181CF0  addi r0,r3,0xC0    u16 DE3E                         [ADDED]
+  0x80181D44  fadds f0,f1,f0     DE38 += 0.25                     [ADDED]
+  0x80181D54  addi r0,r3,0x80    u16 DE40                         [ADDED]
+  These 7 per-frame accumulators (Hxs2_Circle star rings and the stamp
+  fade) are NOT handled by BSE: disagreement noted, fixed here.
 
-GAMEOVER (Hx_GameOver ; r29 = 0x803C1278, table (delta, durée) à +0x70)
-  0x801804B0  stw r0,0x3c(r31)  (0x32)  -> TIMER_R0            [BSE] haute
-  0x801804E8  stw r0,0x3c(r31)  (0x0A)  -> TIMER_R0            [BSE] haute
+GAMEOVER (Hx_GameOver ; r29 = 0x803C1278, (delta, duration) table at +0x70)
+  0x801804B0  stw r0,0x3c(r31)  (0x32)  -> TIMER_R0            [BSE] high
+  0x801804E8  stw r0,0x3c(r31)  (0x0A)  -> TIMER_R0            [BSE] high
   0x801804F8  fadds f0,f1,f0    C6BC(mag) += 0.074 (f1) -> f0 = f0 + f1/M
-              (BSE : 0x801804EC, retour 0.074/M ; même effet)   haute
-  0x80180510  fadds f0,f2,f0    DE4C(fondu) += 5.1 (f2) -> f0 = f0 + f2/M
-              (BSE : 0x80180514)                                haute
-  0x80180548  stw r3,DE54       1re durée de la table (6.0) -> GO_TIMER_R3
-              **Absent de BSE** : BSE divise le 1er delta (0x80180538) mais
-              laisse sa durée à 6 images -> le 1er rebond n'atteint qu'1/M de
-              son amplitude et décale tous les suivants. Désaccord.   haute
+              (BSE: 0x801804EC, returns 0.074/M; same effect)   high
+  0x80180510  fadds f0,f2,f0    DE4C(fade) += 5.1 (f2) -> f0 = f0 + f2/M
+              (BSE: 0x80180514)                                high
+  0x80180548  stw r3,DE54       1st table duration (6.0) -> GO_TIMER_R3
+              **Missing from BSE**: BSE divides the 1st delta (0x80180538) but
+              leaves its duration at 6 frames -> the 1st bounce only reaches 1/M
+              of its amplitude and shifts all following ones. Disagreement. high
   0x80180558  fsubs f0,f1,f0    C6BC -= 0.1 (f0) -> f0 = f1 - f0/M
-              (BSE : 0x8018055C)                                haute
-  0x801805BC  stw r3,DE54       durées suivantes -> GO_TIMER_R3 [BSE] haute
-  0x801805E0  stw r3,0x3c(r31)  (0x20) -> TIMER_R3 ; r0 = 0xFF vivant (stb
-              suivant), non touché. BSE réécrit 0x801805E0/E4 pour le même
-              résultat.                                          haute
-  0x801805F4  fadds f0,f1,f0    C6BC += DE58 (delta de table, f0) -> f1 + f0/M
-              Remplace les trois SMS_WRITE_32 de BSE (0x8018059C/A8/AC) et ses
-              deux divisions du delta (0x80180538, 0x801805B0) : on divise
-              l'incrément à l'endroit où il est appliqué, DE58 garde la valeur
-              de la table. Un seul site au lieu de cinq.         haute
-  0x80180610  stw r0,0x3c(r31)  (0x64) -> TIMER_R0             [BSE] haute
+              (BSE: 0x8018055C)                                high
+  0x801805BC  stw r3,DE54       following durations -> GO_TIMER_R3 [BSE] high
+  0x801805E0  stw r3,0x3c(r31)  (0x20) -> TIMER_R3 ; r0 = 0xFF live (next stb),
+              untouched. BSE rewrites 0x801805E0/E4 for the same
+              result.                                          high
+  0x801805F4  fadds f0,f1,f0    C6BC += DE58 (table delta, f0) -> f1 + f0/M
+              Replaces BSE's three SMS_WRITE_32 (0x8018059C/A8/AC) and its
+              two delta divisions (0x80180538, 0x801805B0): the increment is
+              divided where it is applied, DE58 keeps the table value. One site
+              instead of five.                                   high
+  0x80180610  stw r0,0x3c(r31)  (0x64) -> TIMER_R0             [BSE] high
   0x80180624  addi r0,r3,8      alpha u8 DE5C += 8 -> r3 + 8/M
-              (BSE : 0x80180628, 8/(u8)M ; identique). Sur 0x20×M images la
-              somme vaut toujours 256 : l'alpha repart de 0xFF, boucle une fois
-              et revient à 0xFF, comme à 30 FPS.                 haute
-  0x80180500  bl Hx_MotionUpdate : couvert par le remplacement global.
+              (BSE: 0x80180628, 8/(u8)M; identical). Over 0x20×M frames the
+              sum is always 256: alpha starts at 0xFF, wraps once and returns
+              to 0xFF, as at 30 FPS.                             high
+  0x80180500  bl Hx_MotionUpdate: covered by the global replacement.
 
-TEST1   0x8017F5BC  stw r0,0x3c(r30) (0x19) -> TIMER_R0         [BSE] haute
+TEST1   0x8017F5BC  stw r0,0x3c(r30) (0x19) -> TIMER_R0         [BSE] high
 TEST2   0x8017EFA0 / F014 / F0D0 / F1C0  stw r0,0x3c(r31) -> TIMER_R0 [BSE]
 TEST2R  0x8017EB74 / EC90 / ED90 / EE5C  stw r0,0x3c(r31) -> TIMER_R0 [BSE]
-        Aux 8 sites, r3 (argument de Hx_MotionSet qui suit) est vivant : les
-        bouchons ne le touchent pas.                             haute
+        At all 8 sites, r3 (argument of the following Hx_MotionSet) is live:
+        the stubs do not touch it.                               high
 
 TEST4 (Hx_Test4)
-  DE88 (u32, nb de segments) = cvt(DE88 + DE90) chaque image, DE90 = ±5 ;
-  DE84 += DE8C (±0.15). L'entier perdrait les fractions de 5/M : comme BSE on
-  garde un accumulateur flottant (T4STATE, état propre, hors [OnFrame]).
-  0x8017E50C / 0x8017E530  stw r0,DE88 (0 ou 230) -> T4INIT : même stw, puis
-              T4STATE = (float)r0. f0/f1/f2 (stockés juste après) intacts.
-              (BSE : 0x8017E518 / 0x8017E53C.)
+  DE88 (u32, segment count) = cvt(DE88 + DE90) every frame, DE90 = ±5;
+  DE84 += DE8C (±0.15). The integer would lose the fractions of 5/M: like BSE
+  we keep a float accumulator (T4STATE, own state, outside [OnFrame]).
+  0x8017E50C / 0x8017E530  stw r0,DE88 (0 or 230) -> T4INIT: same stw, then
+              T4STATE = (float)r0. f0/f1/f2 (stored right after) untouched.
+              (BSE: 0x8017E518 / 0x8017E53C.)
   0x8017E544  stw r0,0x3c(r31) (0x26) -> TIMER_R0              [BSE]
-  0x8017E578  bl __cvt_fp2unsigned -> bl T4ACC : T4STATE += f0/M (f0 = DE90
-              chargé en 0x8017E564), puis saut terminal vers
-              __cvt_fp2unsigned(T4STATE) — qui renvoie 0 pour un négatif
-              (compare à 0.0 @0x803AA8E8), d'où le Max(0,·) de BSE.
+  0x8017E578  bl __cvt_fp2unsigned -> bl T4ACC: T4STATE += f0/M (f0 = DE90
+              loaded at 0x8017E564), then tail jump to
+              __cvt_fp2unsigned(T4STATE) — which returns 0 for a negative
+              (compares to 0.0 @0x803AA8E8), hence BSE's Max(0,·).
   0x8017E588  fadds f0,f1,f0  DE84 += DE8C -> f0 = f1 + f0/M
-              (BSE divise DE8C à l'armement ; ici à l'application.)
-  Confiance haute.
+              (BSE divides DE8C when arming; here when applying.)
+  Confidence high.
 
 TEST5 (Hx_Test5)
-  BSE ne décrémente le compteur qu'une image sur M (alternateur u8 jamais remis
-  à zéro -> phase arbitraire, animation en marches d'escalier). Ici : durée
-  20×M (0x8017E07C stw r0 -> TIMER_R0) et diviseur 20.0 -> 20×M
-  (0x8017E14C ``lfs f1,-0x4614(r2)`` = 20.0 -> bl T5DIV, f1 = 20×M ; f0 est
-  rechargé en 0x8017E15C, r0 déjà stocké en 0x8017E148). Le rapport
-  timer/20 = f3 (0x8017E164–E174) décrit la même courbe, en 20×M pas au lieu
-  de 20. Pas d'état. Le littéral 20.0 @0x8041258C est partagé (Hx_Circle, etc.) :
-  on ne le modifie pas. Désaccord avec BSE (volontaire).       haute
+  BSE only decrements the counter one frame in M (u8 toggle never reset
+  -> arbitrary phase, stair-stepped animation). Here: duration
+  20×M (0x8017E07C stw r0 -> TIMER_R0) and divisor 20.0 -> 20×M
+  (0x8017E14C ``lfs f1,-0x4614(r2)`` = 20.0 -> bl T5DIV, f1 = 20×M; f0 is
+  reloaded at 0x8017E15C, r0 already stored at 0x8017E148). The ratio
+  timer/20 = f3 (0x8017E164–E174) follows the same curve, in 20×M steps
+  instead of 20. Stateless. The 20.0 literal @0x8041258C is shared
+  (Hx_Circle, etc.): it is not modified. Disagreement with BSE
+  (deliberate).                                                high
 
-MOTION (Hx_MotionUpdate 0x80181D74, feuille, f0/f1/r3 seulement)
-  ``b MOTION`` sur la 1re instruction ; appelée par ``bl`` depuis 14 sites
-  (xref), donc r12/f13 volatils selon l'ABI. fcmpo -> fcmpu (seule différence :
-  pas d'exception sur NaN). Pour une motion trapézoïdale de Hx_MotionSet
-  (2/8/1 images, Test2), la distance finale reste 9,5 × vmax à M = 1, 2 et 4
-  (vérifié à la main) : les volets arrivent au même endroit.
-  Hx_Door n'a pas de compte à rebours (fin sur la position) : correct avec le
-  seul remplacement de Motion.
-  **Hx_Logo** (0x8017FACC) : ses durées viennent d'une table et ne sont pas
-  mises à l'échelle (ni par BSE, qui force 30 FPS pendant le logo). Pour ne pas
-  désynchroniser mouvement et durée si M ≠ 1 pendant le logo, cet appel est
-  redirigé vers MOTION_ORIG (instruction d'origine + ``b 0x80181D78``) : le
-  logo garde son comportement d'origine, cohérent mais M fois trop rapide.
+MOTION (Hx_MotionUpdate 0x80181D74, leaf, f0/f1/r3 only)
+  ``b MOTION`` on the 1st instruction; called by ``bl`` from 14 sites
+  (xref), so r12/f13 are volatile per the ABI. fcmpo -> fcmpu (only
+  difference: no exception on NaN). For a trapezoidal Hx_MotionSet motion
+  (2/8/1 frames, Test2), the final distance stays 9.5 × vmax at M = 1, 2 and 4
+  (checked by hand): wipes end at the same place.
+  Hx_Door has no countdown (ends on position): correct with the Motion
+  replacement alone.
+  **Hx_Logo** (0x8017FACC): its durations come from a table and are not
+  scaled (nor by BSE, which forces 30 FPS during the logo). To avoid
+  desynchronising motion and duration if M ≠ 1 during the logo, this call is
+  redirected to MOTION_ORIG (original instruction + ``b 0x80181D78``): the
+  logo keeps its original behaviour, consistent but M times too fast.
 
-NON VÉRIFIÉ
------------
-* Que TSMSFader::draw (appel virtuel, aucun xref direct) soit bien appelé une
-  fois par image rendue et non par sous-pas. Indices forts : Hx_UpdateWipe
-  encadre l'appel de GXDrawDone, et les volets émettent des primitives GX.
-  Même hypothèse que BSE.
-* Rien n'a été exécuté dans Dolphin (interdit par le brief) : ni la durée
-  réelle des volets à 120 FPS, ni le rendu des anneaux de Hx_Circle.
-* Hx_Logo reste non corrigé (M fois trop rapide si M ≠ 1 pendant le logo).
-  Dépendance : l'agent qui remet le jeu à 30 FPS en boot/logo/intro.
+NOT VERIFIED
+------------
+* That TSMSFader::draw (virtual call, no direct xref) is really called once
+  per rendered frame and not per substep. Strong hints: Hx_UpdateWipe
+  brackets the call with GXDrawDone, and wipes emit GX primitives.
+  Same assumption as BSE.
+* Nothing was run in Dolphin (forbidden by the brief): neither the actual
+  wipe duration at 120 FPS nor the rendering of the Hx_Circle rings.
+* Hx_Logo remains unfixed (M times too fast if M ≠ 1 during the logo).
+  Dependency: the agent that puts the game back to 30 FPS in boot/logo/intro.
 
-Disposition de la cave (0x80001800–0x80001FFF)
-----------------------------------------------
-  0x80001800  f64  MAGIC  0x43300000_00000000       constante (profil)
-  0x80001808  u32  0x43300000                        constante (profil)
-  0x8000180C  u32  SCR_LO  entrée entière            état, HORS profil
-  0x80001810  f64  SCR2    sortie fctiwz             état, HORS profil
-  0x80001818  f32  T4STATE accumulateur TEST4        état, HORS profil
-  0x8000181C–0x800018AF  libre (0x800018A8 = crochet HLE de Dolphin, jamais exécuter)
+Code cave layout (0x80001800–0x80001FFF)
+----------------------------------------
+  0x80001800  f64  MAGIC  0x43300000_00000000       constant (profile)
+  0x80001808  u32  0x43300000                        constant (profile)
+  0x8000180C  u32  SCR_LO  integer input             state, NOT in profile
+  0x80001810  f64  SCR2    fctiwz output             state, NOT in profile
+  0x80001818  f32  T4STATE TEST4 accumulator         state, NOT in profile
+  0x8000181C–0x800018AF  free (0x800018A8 = Dolphin HLE hook, never execute)
   0x800018B0  code
 """
 
@@ -162,43 +162,42 @@ from build_caves import assemble, words  # noqa: E402
 RANGE = (0x80001800, 0x80002000)
 
 BASE = 0x80001800
-# Déplacements par rapport à r12 = 0x80000000 (« lis r12, 0x8000 » dans toutes
-# les routines), donc ABSOLUS dans la page basse : 0x1800 + décalage dans la
-# cave. Jusqu'au 2026-09-27 ils valaient 0x00–0x18 : les routines écrivaient
-# dans l'en-tête disque (0x8000000C…) et lisaient 0x80000000 comme constante de
-# conversion — minuteur HX saturé, volet sans fin, émulation à 13 champs/s.
+# Offsets from r12 = 0x80000000 ("lis r12, 0x8000" in every routine), hence
+# ABSOLUTE within the low page: 0x1800 + offset in the cave. Until 2026-09-27
+# they were 0x00–0x18: the routines wrote into the disc header (0x8000000C…)
+# and read 0x80000000 as the conversion constant — HX timer saturated, endless
+# wipe, emulation at 13 fields/s.
 LOW = 0x80000000
 MAGIC = BASE - LOW + 0x00     # f64 0x4330000000000000
-SCR = BASE - LOW + 0x08       # f64 : hi 0x43300000 (constante), lo = entrée (état)
+SCR = BASE - LOW + 0x08       # f64: hi 0x43300000 (constant), lo = input (state)
 SCR_LO = BASE - LOW + 0x0C
-SCR2 = BASE - LOW + 0x10      # f64 : sortie de fctiwz (état)
-T4STATE = BASE - LOW + 0x18   # f32 : accumulateur TEST4 (état)
-# Le code commence APRÈS 0x800018A8 : Dolphin y pose le crochet HLE
-# « GeckoCodehandler » (Gecko::ENTRY_POINT). Toute instruction exécutée à cette
-# adresse incrémente le mot 0x80001800 et vide TOUT le cache JIT
-# (HLE_Misc::GeckoCodeHandlerICacheFlush → iCache.Reset). Jusqu'au 2026-09-27
-# le code partait de 0x80001820 et INT_STEP tombait sur 0x800018A8 : trois
-# vidages par image pendant Hx_Circle, émulation à 8 champs/s.
+SCR2 = BASE - LOW + 0x10      # f64: fctiwz output (state)
+T4STATE = BASE - LOW + 0x18   # f32: TEST4 accumulator (state)
+# Code starts AFTER 0x800018A8: Dolphin puts its "GeckoCodehandler" HLE hook
+# there (Gecko::ENTRY_POINT). Any instruction executed at that address
+# increments the word at 0x80001800 and flushes the WHOLE JIT cache
+# (HLE_Misc::GeckoCodeHandlerICacheFlush → iCache.Reset). Until 2026-09-27
+# the code started at 0x80001820 and INT_STEP landed on 0x800018A8: three
+# flushes per frame during Hx_Circle, emulation at 8 fields/s.
 CODE = 0x800018B0
 
 TIMER_ADDR = 0x803F43FC
 CVT_FP2UNSIGNED = 0x8033829C
 MOTION_FN = 0x80181D74
 
-# M = 2 × f32@0x804167B8 dans f13 (r12 écrasé).
+# M = 2 × f32@0x804167B8 in f13 (clobbers r12).
 LOAD_M = """
     lis    r12, 0x8041
     lfs    f13, 0x67B8(r12)
     fadds  f13, f13, f13
 """
 
-# ---------------------------------------------------------------- routines
-# Chaque entrée : (nom, source). Les sources peuvent référencer {nom} d'une
-# routine précédente (adresse résolue à l'assemblage).
+# Each ROUTINES entry: (name, source). A source may reference {name} of an
+# earlier routine (address resolved at assembly time).
 
 
 def _timer_core(dest: str) -> str:
-    """SCR_LO contient l'entier non signé x ; écrit (int)(x × M) à dest."""
+    """SCR_LO holds the unsigned integer x; writes (int)(x × M) to dest."""
     return f"""
     lfd    f13, {SCR}(r12)
     lfd    f12, {MAGIC}(r12)
@@ -223,7 +222,7 @@ TIMER_DEST_GO = """
 
 
 def _fstep(op: str, dst: str, old: str, inc: str) -> str:
-    """Refait « op dst, old, inc » avec inc / M."""
+    """Redoes "op dst, old, inc" with inc / M."""
     return f"""
     {LOAD_M}
     fdivs  f13, {inc}, f13
@@ -240,7 +239,7 @@ def _int_stub(imm: int) -> str:
 
 
 ROUTINES: list[tuple[str, str]] = [
-    # --- compte à rebours HX (0x803F43FC) -----------------------------------
+    # HX countdown (0x803F43FC)
     ("TIMER_R0", f"""
     lis    r12, 0x8000
     stw    r0, {SCR_LO:#x}(r12)
@@ -250,12 +249,12 @@ ROUTINES: list[tuple[str, str]] = [
     stw    r3, {SCR_LO:#x}(r12)
     b      {{TIMER_R0}}+8
 """),
-    # --- durée de segment GameOver (DE54) -----------------------------------
+    # GameOver segment duration (DE54)
     ("GO_TIMER_R3", f"""
     lis    r12, 0x8000
     stw    r3, {SCR_LO:#x}(r12)
 """ + _timer_core(TIMER_DEST_GO)),
-    # --- r0 = r3 + r0 / (int)M ---------------------------------------------
+    # r0 = r3 + r0 / (int)M
     ("INT_STEP", f"""
     {LOAD_M}
     fctiwz f13, f13
@@ -266,7 +265,7 @@ ROUTINES: list[tuple[str, str]] = [
     add    r0, r3, r0
     blr
 """),
-    # --- Hx_MotionUpdate au pas 1/M -----------------------------------------
+    # Hx_MotionUpdate with step 1/M
     ("MOTION", f"""
     {LOAD_M}
     lfs    f0, 0(r3)
@@ -303,12 +302,11 @@ tick:
     lfs    f1, 0x20(r3)
     blr
 """),
-    # Version d'origine pour Hx_Logo : 1re instruction écrasée, puis la suite.
+    # Original version for Hx_Logo: the overwritten 1st instruction, then the rest.
     ("MOTION_ORIG", f"""
     lfs    f0, 0(r3)
     b      {MOTION_FN + 4:#x}
 """),
-    # --- TEST4 ----------------------------------------------------------------
     ("T4INIT", f"""
     stw    r0, -0x6338(r13)
     lis    r12, 0x8000
@@ -329,27 +327,27 @@ tick:
     stfs   f1, {T4STATE:#x}(r12)
     b      {CVT_FP2UNSIGNED:#x}
 """),
-    # --- TEST5 : diviseur 20.0 -> 20 × M --------------------------------------
+    # TEST5: divisor 20.0 -> 20 × M
     ("T5DIV", f"""
     {LOAD_M}
     lfs    f1, -0x4614(r2)
     fmuls  f1, f1, f13
     blr
 """),
-    # --- incréments flottants par image -------------------------------------
+    # Per-frame float increments
     ("F_CIRCLE_DE44", _fstep("fadds", "f1", "f2", "f1")),
     ("F_A1_PLUS_F0", _fstep("fadds", "f0", "f1", "f0")),   # f0 = f1 + f0/M
     ("F_F0_PLUS_F1", _fstep("fadds", "f0", "f0", "f1")),   # f0 = f0 + f1/M
     ("F_F0_PLUS_F2", _fstep("fadds", "f0", "f0", "f2")),   # f0 = f0 + f2/M
     ("F_F1_MINUS_F0", _fstep("fsubs", "f0", "f1", "f0")),  # f0 = f1 - f0/M
-    # --- incréments entiers par image ---------------------------------------
+    # Per-frame integer increments
     ("I_0x180", _int_stub(0x180)),
     ("I_0xC0", _int_stub(0xC0)),
     ("I_0x80", _int_stub(0x80)),
     ("I_0x8", _int_stub(0x8)),
 ]
 
-# (site, routine, instruction d'origine attendue, commentaire)
+# (site, routine, expected original instruction, comment)
 SITES: list[tuple[int, str, int, str]] = [
     # CIRCLE
     (0x80181B54, "TIMER_R0", 0x901F003C, "Circle timer 0x19"),
@@ -392,7 +390,7 @@ SITES: list[tuple[int, str, int, str]] = [
     # TEST5
     (0x8017E07C, "TIMER_R0", 0x901F003C, "Test5 timer 0x14"),
     (0x8017E14C, "T5DIV", 0xC022B9EC, "Test5 diviseur 20.0"),
-    # MOTION (Logo d'abord redirigé vers l'original, puis la fonction elle-même)
+    # MOTION (Logo redirected to the original first, then the function itself)
     (0x8017FACC, "MOTION_ORIG", None, "Hx_Logo bl Hx_MotionUpdate -> original"),
 ]
 SITE_MOTION = (MOTION_FN, "MOTION", 0xC0030000, "Hx_MotionUpdate -> b MOTION")
@@ -413,7 +411,7 @@ def _assemble_all() -> dict[str, tuple[int, bytes]]:
 
 
 def _data() -> list[tuple[int, int]]:
-    """Constantes seulement ; SCR_LO, SCR2, T4STATE sont de l'état, exclus."""
+    """Constants only; SCR_LO, SCR2 and T4STATE are state and are excluded."""
     return [
         (LOW + MAGIC, 0x43300000),
         (LOW + MAGIC + 4, 0x00000000),
@@ -474,7 +472,6 @@ def main() -> int:
         print(f"  {site:08X}  {before:08X} {dis(site, before.to_bytes(4, 'big')):<28} -> "
               f"{after:08X} {dis(site, after.to_bytes(4, 'big')):<16} ; {comment}")
 
-    # Tout ce qui n'est pas un site doit être dans la plage de la cave.
     sites = {s for s, *_ in SITES} | {SITE_MOTION[0]}
     for a, _ in patches:
         assert a in sites or RANGE[0] <= a < RANGE[1], hex(a)

@@ -1,48 +1,46 @@
-"""Maintien du palier 120 FPS sur un Dolphin en cours d'exécution.
+"""Keeps the 120 FPS tier applied on a running Dolphin.
 
-Pourquoi un processus résident plutôt qu'un code Gecko
------------------------------------------------------
-Le profil `deliver/GMSE01.ini` ne porte que la moitié hôte du réglage —
-l'overclock VI. La moitié côté jeu passe par deux écritures dans la MEM1, pas
-par la section `[Gecko]` de Dolphin.
+Why a resident process rather than a Gecko code
+-----------------------------------------------
+The `deliver/GMSE01.ini` profile only carries the host half of the setting --
+the VI overclock. The game half goes through two MEM1 writes, not through
+Dolphin's `[Gecko]` section.
 
-Ce n'est pas un choix d'élégance, c'est un constat : le 2026-09-22, un
-`[Gecko]` en règle dans le profil par jeu **n'a pas été chargé** — Dolphin
-n'avait injecté aucun codehandler (0x80001800 entièrement nul) alors que le
-`[Core]` du même fichier, lui, avait bien pris effet. Cause non élucidée.
+This is an observation, not a style choice: on 2026-09-22 a valid `[Gecko]`
+section in the per-game profile **was not loaded** -- Dolphin had injected no
+codehandler (0x80001800 all zeros) while the `[Core]` section of the same
+file did take effect. Cause not found.
 
-Les écritures de données, elles, sont éprouvées depuis la session 2 et ne se
-heurtent pas au cache JIT, contrairement au `nop` de `gamemasterplc` :
+The data writes have been proven since session 2 and do not hit the JIT
+cache, unlike `gamemasterplc`'s `nop`:
 
-    0x804167B8        f32   0.5f -> 2.0f   horloge logique à 120 Hz
-    TDisplay + 0x4C   u16   2    -> 1      un champ VI par image présentée
+    0x804167B8        f32   0.5f -> 2.0f   logic clock at 120 Hz
+    TDisplay + 0x4C   u16   2    -> 1      one VI field per presented frame
 
-Ce que ce module surveille
---------------------------
-Il ne se contente pas d'écrire une fois. Il vérifie en boucle que les deux
-valeurs tiennent, et les repose si elles dérivent — au redémarrage du jeu, ou
-si `TDisplay` est réalloué. L'adresse de `TDisplay` est résolue à chaque tour
-par `gpApplication + 0x1C` : elle vit sur le tas et change d'une session à
-l'autre.
+What it monitors
+----------------
+It does not just write once. It checks in a loop that both values hold and
+rewrites them if they drift -- on game restart, or if `TDisplay` is
+reallocated. `TDisplay` is resolved every iteration through
+`gpApplication + 0x1C`: it lives on the heap and moves between sessions.
 
-Il applique le réglage **dès que `TDisplay` existe**, c'est-à-dire bien avant
-l'entrée dans un niveau. C'est voulu : tant qu'il n'est pas posé et que le VI
-tourne à 2×, le jeu s'exécute à double vitesse.
+It applies the setting **as soon as `TDisplay` exists**, well before entering
+a level. This is intended: until it is applied and while the VI runs at 2x,
+the game runs at double speed.
 
-Ce qu'il ne fait pas
---------------------
-Aucune correction d'objet. Les nuées d'oiseaux, le boss anguille, les minuteurs
-de dialogue, les transitions et les fondus restent non corrigés — voir
-`deliver/README.md`.
+What it does not do
+-------------------
+No per-object fixes. Bird flocks, the eel boss, dialog timers, transitions
+and fades remain unfixed -- see `deliver/README.md`.
 
-Il ne touche pas non plus au littéral `0x80414904` (fondu `TModelGate`) :
-l'anomalie du § 4.3 de `docs/01-mecanismes.md` n'est pas tranchée.
+It does not touch the `0x80414904` literal (`TModelGate` fade) either: the
+anomaly in section 4.3 of `docs/01-mecanismes.md` is unresolved.
 
 Usage
 -----
-    python keep120.py            # résident, Ctrl+C pour rendre la main
-    python keep120.py --once     # une seule passe
-    python keep120.py --restore  # remet 30 FPS (0.5f, 2 champs)
+    python keep120.py            # resident, Ctrl+C to stop
+    python keep120.py --once     # single pass
+    python keep120.py --restore  # back to 30 FPS (0.5f, 2 fields)
 """
 
 from __future__ import annotations
@@ -61,11 +59,11 @@ GP_APPLICATION = 0x803E9700
 OFF_DISPLAY = 0x1C
 OFF_RETRACE_COUNT = 0x4C
 
-PATCH_SITE_RETRACE = 0x802FCB24  # bl VIWaitForRetrace, final de waitForRetrace
+PATCH_SITE_RETRACE = 0x802FCB24  # final bl VIWaitForRetrace in waitForRetrace
 NOP = 0x60000000
 
-# (littéral, mRetraceCount). Le compte suppose l'attente finale INTACTE ; si
-# elle a été neutralisée par `deliver/GMSE01.ini`, `target_count` le corrige.
+# (literal, mRetraceCount). The count assumes the final wait is INTACT; if
+# `deliver/GMSE01.ini` removed it, `target_count` adjusts.
 PROFILES = {
     30: (0.5, 2),
     60: (1.0, 1),
@@ -74,15 +72,15 @@ PROFILES = {
 
 
 def target_count(dolphin: Dolphin, count: int) -> int:
-    """Corrige le compte si l'attente finale a été neutralisée à l'amorçage.
+    """Adjust the count if the final wait was removed at boot.
 
-    Les deux correctifs se cumulent, et leur cumul est dangereux. Le § 3.1 de
-    docs/01-mecanismes.md le dit : neutralisée, `waitForRetrace` consomme
-    `count - 1` champs par appel. Avec `count = 1` cela fait **zéro** — plus
-    aucune attente de balayage, le jeu s'emballe à la vitesse de l'hôte.
+    The two fixes stack, and stacking them is dangerous. Per
+    docs/01-mecanismes.md section 3.1, with the wait removed `waitForRetrace`
+    consumes `count - 1` fields per call. With `count = 1` that is **zero** --
+    no retrace wait at all, the game runs as fast as the host allows.
 
-    Quand le `nop` est là, il porte déjà à lui seul la présentation par champ :
-    le compte doit rester à sa valeur NTSC de 2.
+    When the `nop` is present it already gives per-field presentation on its
+    own: the count must stay at its NTSC value of 2.
     """
     if dolphin.u32(PATCH_SITE_RETRACE) == NOP:
         return count + 1
@@ -90,7 +88,7 @@ def target_count(dolphin: Dolphin, count: int) -> int:
 
 
 def display_address(dolphin: Dolphin) -> int | None:
-    """`JDrama::TDisplay`, ou None tant qu'il n'est pas construit."""
+    """`JDrama::TDisplay`, or None until it is constructed."""
     display = dolphin.u32(GP_APPLICATION + OFF_DISPLAY)
     return display if dolphin.is_valid_pointer(display) else None
 
@@ -103,7 +101,7 @@ def read_state(dolphin: Dolphin) -> tuple[float, int] | None:
 
 
 def enforce(dolphin: Dolphin, fps: int) -> tuple[bool, str]:
-    """Pose le palier si besoin. Retourne (une écriture a eu lieu, message)."""
+    """Apply the tier if needed. Returns (whether a write happened, message)."""
     literal, count = PROFILES[fps]
     count = target_count(dolphin, count)
     state = read_state(dolphin)
@@ -130,8 +128,8 @@ def _main(argv: list[str]) -> int:
     try:
         dolphin = Dolphin()
     except (RuntimeError, OSError) as error:
-        # En résident, l'absence de jeu n'est pas une erreur : c'est l'état
-        # normal quand on lance le mainteneur avant de démarrer la partie.
+        # In resident mode, no game is not an error: it is the normal state
+        # when this is started before the game.
         if once:
             print(error)
             return 1
@@ -160,10 +158,10 @@ def _main(argv: list[str]) -> int:
                     raise RuntimeError("pas encore rattaché")
                 written, message = enforce(dolphin, fps)
             except (RuntimeError, OSError):
-                # Le jeu a été arrêté, ou redémarré. Dans le second cas la MEM1
-                # est reprojetée ailleurs et le handle mis en cache ne vaut
-                # plus rien : on se rattache plutôt que d'abandonner. C'est le
-                # cas normal d'un redémarrage pour appliquer le profil hôte.
+                # The game was stopped or restarted. On restart MEM1 is mapped
+                # elsewhere and the cached handle is stale: reattach instead of
+                # giving up. This is the normal case when restarting to apply
+                # the host profile.
                 written = False
                 try:
                     dolphin = Dolphin()

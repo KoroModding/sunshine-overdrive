@@ -1,47 +1,44 @@
-"""Seconde instance de Dolphin, isolée, pour les réglages qui exigent un
-redémarrage.
+"""Isolated second Dolphin instance, for settings that require a restart.
 
-Le problème
------------
-Le palier 120 FPS exige que le VI émulé délivre plus de 59,94 champs par
-seconde, c'est-à-dire le **VBI Frequency Override** de Dolphin. Ce réglage vit
-dans l'hôte, pas dans la MEM1 : aucune écriture mémoire ne l'atteint, et
-Dolphin ne relit pas sa configuration en cours de partie.
+Problem
+-------
+The 120 FPS tier needs the emulated VI to deliver more than 59.94 fields per
+second, i.e. Dolphin's **VBI Frequency Override**. That setting lives in the
+host, not in MEM1: no memory write reaches it, and Dolphin does not reread
+its configuration mid-game.
 
-Deux voies ont été écartées avant celle-ci :
+Two routes were ruled out first:
 
-- **Envoyer le raccourci de sauvegarde d'état à Dolphin puis le relancer.**
-  Impossible : `SendInput` n'atteint pas le bureau interactif depuis ce
-  contexte — vérifié, même `GetAsyncKeyState` dans le processus appelant ne
-  voit pas la frappe injectée. Toute automatisation clavier est exclue.
-- **Modifier la configuration de Dolphin et le relancer.** Cela détruirait la
-  session en cours de l'utilisateur.
+- **Send the save-state hotkey to Dolphin, then relaunch it.** Impossible:
+  `SendInput` does not reach the interactive desktop from this context --
+  verified, even `GetAsyncKeyState` in the calling process does not see the
+  injected keystroke. Keyboard automation is out.
+- **Edit Dolphin's configuration and relaunch it.** That would destroy the
+  user's running session.
 
-La solution retenue
--------------------
-Lancer une **seconde instance** avec son propre répertoire utilisateur
-(`--user`), son propre réglage d'overclock (`--config`) et une copie de la
-carte mémoire. L'instance de l'utilisateur n'est jamais touchée : ni sa
-configuration, ni sa sauvegarde, ni sa partie en cours.
+Chosen approach
+---------------
+Start a **second instance** with its own user directory (`--user`), its own
+overclock setting (`--config`) and a copy of the memory card. The user's
+instance is never touched: not its configuration, save or running game.
 
-La navigation dans les menus se fait par la même injection mémoire que le reste
-du projet (`pad.py`) — qui, elle, ne dépend pas du clavier. Il n'y a même pas de
-séquence à minuter : marteler A et START jusqu'à ce que `gpMarDirector` et
-`gpMarioOriginal` deviennent valides suffit à traverser logos, intro, écran
-titre et sélection de fichier.
+Menu navigation uses the same memory injection as the rest of the project
+(`pad.py`), which does not depend on the keyboard. No timed sequence is
+needed: hammering A and START until `gpMarDirector` and `gpMarioOriginal`
+become valid gets through logos, intro, title screen and file select.
 
-État — voie en attente
-----------------------
-Le mécanisme est complet et **vérifié jusqu'à l'entrée en jeu** : instance
-lancée avec `VIOverclock = 2.0`, logos, intro, écran titre et sélection de
-fichier traversés sans intervention, arrivée stable en jeu en 92,6 s (relevé du
-2026-09-15, [`docs/00-journal.md`](../docs/00-journal.md)). La mesure du palier
-120 elle-même n'a **pas** été faite : la session s'est arrêtée là.
+Status -- on hold
+-----------------
+The mechanism is complete and **verified up to entering the game**: instance
+started with `VIOverclock = 2.0`, logos, intro, title screen and file select
+passed unattended, stable in-game arrival after 92.6 s (measured 2026-09-15,
+[`docs/00-journal.md`](../docs/00-journal.md)). The 120 tier measurement
+itself was **not** done: the session stopped there.
 
-Sur décision de l'auteur du projet (2026-09-17), **ce module ne doit pas être
-lancé sans accord explicite**. Deux instances de Dolphin côte à côte se
-disputent le GPU et faussent toute mesure de cadence de l'instance de
-l'utilisateur. Il est conservé complet pour le jour où la mesure sera reprise.
+By decision of the project author (2026-09-17), **this module must not be run
+without explicit agreement**. Two Dolphin instances side by side compete for
+the GPU and skew any frame rate measurement of the user's instance. It is
+kept complete for when the measurement resumes.
 
 Usage
 -----
@@ -63,10 +60,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from dolphin import Dolphin  # noqa: E402
 
-# Chemins locaux : variables d'environnement, sinon valeurs par défaut.
-#   DOLPHIN_EXE       exécutable de Dolphin            (défaut : « Dolphin.exe » dans le PATH)
-#   DOLPHIN_USER_DIR  répertoire utilisateur de Dolphin (défaut : %APPDATA%/Dolphin Emulator)
-#   SMS_ISO           image du jeu GMSE01              (défaut : aucun, à fournir)
+# Local paths come from environment variables, else defaults:
+#   DOLPHIN_EXE       Dolphin executable      (default: "Dolphin.exe" on PATH)
+#   DOLPHIN_USER_DIR  Dolphin user directory  (default: %APPDATA%/Dolphin Emulator)
+#   SMS_ISO           GMSE01 game image       (no default, must be provided)
 _APPDATA = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
 DOLPHIN_EXE = Path(os.environ.get("DOLPHIN_EXE", "Dolphin.exe"))
 ISO = Path(os.environ.get("SMS_ISO", "GMSE01.iso"))
@@ -95,14 +92,13 @@ def running_pids() -> set[int]:
 
 
 def prepare_user_dir(target: Path) -> Path:
-    """Répertoire utilisateur isolé, avec la configuration et la carte mémoire
-    de l'utilisateur recopiées.
+    """Isolated user directory with the user's configuration and memory card
+    copied in.
 
-    La configuration est copiée pour que la seconde instance rende dans les
-    mêmes conditions que la première (même backend, mêmes réglages graphiques) :
-    une comparaison de framerate n'aurait pas de sens sinon. La carte mémoire
-    est copiée pour pouvoir charger une partie existante plutôt que d'avoir à
-    traverser l'introduction complète.
+    The configuration is copied so the second instance renders under the same
+    conditions as the first (same backend, same graphics settings); otherwise
+    a frame rate comparison would be meaningless. The memory card is copied to
+    load an existing save instead of going through the whole intro.
     """
     if target.exists():
         shutil.rmtree(target, ignore_errors=True)
@@ -120,11 +116,11 @@ def prepare_user_dir(target: Path) -> Path:
 
 def launch(user_dir: Path, vi_overclock: float | None = None,
            timeout: float = 60.0) -> int:
-    """Lance l'instance et retourne son PID."""
+    """Start the instance and return its PID."""
     before = running_pids()
     command = [
         str(DOLPHIN_EXE), "-u", str(user_dir), "-e", str(ISO), "-b",
-        "-C", "Dolphin.DSP.Volume=0",  # ne pas doubler le son de l'utilisateur
+        "-C", "Dolphin.DSP.Volume=0",  # don't double the user's audio
     ]
     if vi_overclock is not None:
         command += [
@@ -153,11 +149,10 @@ def wait_for_memory(pid: int, timeout: float = 120.0) -> Dolphin:
 
 
 def find_pads(emulator: Dolphin) -> list[int]:
-    """Instances de `TMarioGamePad`, repérées par leur pointeur de vtable.
+    """`TMarioGamePad` instances, found by their vtable pointer.
 
-    Le passage par la vtable est nécessaire ici : la résolution habituelle
-    (`TMario + 0x4FC`) suppose que Mario existe, ce qui n'est pas le cas dans
-    les menus.
+    The vtable is needed here: the usual resolution (`TMario + 0x4FC`)
+    assumes Mario exists, which is not the case in menus.
     """
     pattern = struct.pack(">I", VT_MARIO_GAMEPAD)
     found = []
@@ -175,19 +170,17 @@ def find_pads(emulator: Dolphin) -> list[int]:
 
 def navigate_to_game(emulator: Dolphin, timeout: float = 300.0,
                      stable_seconds: float = 8.0) -> bool:
-    """Traverse logos, intro, titre et sélection de fichier jusqu'au jeu.
+    """Go through logos, intro, title and file select until in-game.
 
-    Aucune séquence minutée : on alterne A et START sur toutes les manettes
-    trouvées jusqu'à ce qu'un niveau soit chargé. Les menus de Sunshine ne
-    demandent rien d'autre, et cette approche est insensible aux durées
-    d'écran qui varient avec la cadence.
+    No timed sequence: alternate A and START on every controller found until a
+    level is loaded. Sunshine's menus need nothing else, and this is immune to
+    screen durations that vary with frame rate.
 
-    Le critère d'arrêt exige une **stabilité dans la durée**, et ce n'est pas
-    une précaution superflue : l'écran titre de Sunshine lance une démo
-    d'attraction au bout de quelques secondes. Pendant celle-ci, `gpMarDirector`
-    et `gpMarioOriginal` sont parfaitement valides — un test instantané conclut
-    donc à tort qu'on est en jeu, puis la démo s'arrête et l'on se retrouve
-    devant le titre. Constaté avant que ce garde-fou n'existe.
+    The stop condition requires **stability over time**: the title screen
+    starts an attract demo after a few seconds, during which `gpMarDirector`
+    and `gpMarioOriginal` are perfectly valid. An instantaneous check wrongly
+    concludes we are in game, then the demo ends and we are back at the
+    title. Observed before this guard existed.
     """
     deadline = time.perf_counter() + timeout
     pads: list[int] = []
@@ -208,8 +201,8 @@ def navigate_to_game(emulator: Dolphin, timeout: float = 300.0,
                 for pad in pads:
                     emulator.write(pad + OFF_HELD, struct.pack(">II", 0, 0))
                 return True
-            # Ne rien injecter tant que l'état tient : marteler A pendant une
-            # partie déclencherait sauts et dialogues.
+            # Inject nothing while the state holds: hammering A in game would
+            # trigger jumps and dialogs.
             time.sleep(0.2)
             continue
         stable_since = None
@@ -217,8 +210,8 @@ def navigate_to_game(emulator: Dolphin, timeout: float = 300.0,
         if not pads:
             pads = find_pads(emulator)
 
-        # Alterner pression et relâchement : un bouton maintenu en permanence
-        # ne produit aucun front, et c'est le front que les menus attendent.
+        # Alternate press and release: a permanently held button produces no
+        # edge, and menus wait for the edge.
         phase += 1
         button = BUTTON_A if (phase // 8) % 2 == 0 else BUTTON_START
         value = button if (phase % 8) < 4 else 0
@@ -247,10 +240,10 @@ def _main(argv: list[str]) -> int:
         return 2
 
     if argv[1] == "stop":
-        # `stop` arrête **toutes** les instances trouvées, y compris celle de
-        # l'utilisateur : les PID ne disent pas laquelle est laquelle, et se
-        # tromper de cible a déjà eu lieu (journal du 2026-09-15). À n'utiliser
-        # que quand aucune session personnelle ne tourne.
+        # `stop` kills **every** instance found, including the user's: PIDs
+        # don't tell which is which, and hitting the wrong target already
+        # happened (journal, 2026-09-15). Only use when no personal session
+        # is running.
         pids = running_pids()
         if not pids:
             print("aucune instance de Dolphin en cours")
@@ -275,9 +268,9 @@ def _main(argv: list[str]) -> int:
 
         existing = running_pids()
         if existing:
-            # Refus délibéré. Deux instances se partagent le GPU ; la cadence
-            # mesurée dans l'une dépend alors de la charge de l'autre, ce qui
-            # ôte tout sens à la mesure. Voir l'en-tête du module.
+            # Deliberate refusal: two instances share the GPU, so the frame
+            # rate measured in one depends on the other's load. See the
+            # module docstring.
             print(f"Dolphin tourne déjà (PID {sorted(existing)}).")
             print("Lancer une seconde instance fausserait toute mesure de "
                   "cadence — refus.")

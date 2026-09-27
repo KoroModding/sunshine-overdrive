@@ -1,35 +1,37 @@
-"""TJointCoin / TSandBird : débit des animations posé par TJointCoin::loadAfter.
+"""TJointCoin / TSandBird: animation rate set by TJointCoin::loadAfter.
 
-Extrait seul de tools/fixes/actors.py (groupe 4), mêmes sites, mêmes routines
-et mêmes adresses, pour être installé indépendamment (un correctif à la fois).
+Extracted on its own from tools/fixes/actors.py (group 4), same sites, same
+routines and same addresses, so it can be installed independently (one fix at
+a time).
 
-Défaut (lu dans le DOL, puis mesuré le 2026-09-27 sur l'oiseau de sable de
-Gelato, tools/watch_sandbird.py, profil 1309 lignes, 120 images/s)
+Defect (read in the DOL, then measured on 2026-09-27 on the Gelato sand bird,
+tools/watch_sandbird.py, 1309-line profile, 120 frames/s)
 =========================================================================
-TSandBird hérite de TJointCoin (même loadAfter, control appelle celui de
-TJointCoin). loadAfter pose le débit du frame ctrl 0 à 0,25 × anmRate :
+TSandBird inherits from TJointCoin (same loadAfter, its control calls
+TJointCoin's). loadAfter sets frame ctrl 0's rate to 0.25 × anmRate:
 
-    801F76A8  bl SMSGetAnmFrameRate ; ×0,25 -> +0x74  « character » (ailes)
-    801F76C4  bl SMSGetAnmFrameRate ; ×0,25 -> +0x138 « movement » (trajectoire)
+    801F76A8  bl SMSGetAnmFrameRate ; ×0.25 -> +0x74  "character" (wings)
+    801F76C4  bl SMSGetAnmFrameRate ; ×0.25 -> +0x138 "movement" (path)
 
-TJointCoin::control (par sous-pas) avance +0x138 puis copie la translation de
-son joint racine dans la position : trajectoire à 120 avances/s quel que soit
-M. +0x74 avance en plus une fois par image (TLiveActor::perform).
+TJointCoin::control (per substep) advances +0x138 then copies its root joint's
+translation into the position: path at 120 advances/s whatever M is. +0x74 is
+also advanced once per frame (TLiveActor::perform).
 
-    mesuré à 120 FPS : débit 0,125 ; trajectoire 15,0 trames/s, ailes 30,0,
-                       vol 88 u/s, un tour (9000 trames) en ~600 s
-    calculé à 30 FPS : trajectoire 60 trames/s, ailes 75 ; tour en 150 s
+    measured at 120 FPS: rate 0.125; path 15.0 animation frames/s, wings 30.0,
+                         flight 88 u/s, one lap (9000 animation frames) in ~600 s
+    computed at 30 FPS:  path 60 animation frames/s, wings 75; lap in 150 s
 
-Correctif
-=========
-801F76C4 -> bl CONST2 (2,0) : débit 0,5 constant, 60 trames/s à tout M.
-801F76A8 -> bl JCCHAR (10 / (4 + M)) : débit 2,5 / (4 + M), 75 trames/s à tout M.
-Les deux routines sont celles de birds.py et bosses.py, réécrites ici à
-l'identique pour que le module tienne seul.
+Fix
+===
+801F76C4 -> bl CONST2 (2.0): constant rate 0.5, 60 animation frames/s at any M.
+801F76A8 -> bl JCCHAR (10 / (4 + M)): rate 2.5 / (4 + M), 75 animation
+frames/s at any M.
+Both routines are those of birds.py and bosses.py, rewritten here identically
+so the module stands alone.
 
-Réserve : débit figé au chargement avec le M du moment ; ressortir et rentrer
-dans le niveau après installation. Les autres TJointCoin du jeu partagent ce
-code : NON VÉRIFIÉS.
+Caveat: the rate is frozen at load time with the M of that moment; leave and
+re-enter the level after installing. The game's other TJointCoin users share
+this code: NOT VERIFIED.
 """
 
 from __future__ import annotations

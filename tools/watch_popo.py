@@ -1,19 +1,19 @@
-"""Poink (TPopo, vtable 0x803BA558) : remplissage sur la buse, lancement, vol,
-explosion. Pour trancher « explose tout de suite et ne dépasse pas 2 m ».
+"""Poink (TPopo, vtable 0x803BA558): filling on the nozzle, launch, flight,
+explosion. Written to settle "explodes immediately and never goes past 2 m".
 
-Lu dans le DOL (GMSE01) :
-- TPopo::checkTrigger 0x800E8898, appelé par le nerf PossessedNozzle :
-  gâchette R = (u8) *(*(gpMarioOriginal + 0x4FC) + 0xB4) ; > 0x14 : remplissage
-  +0x198 += R × prm+0x42C, plafonné à prm+0x404 ; relâchée (< 0x14) et
-  remplissage > prm+0x440 (ou +0x1CC) -> lancement.
-- TNervePopoFly 0x800E6078, pas 0 : vitesse = prm+0x3B4 × (+0x198 / prm+0x404)
-  × axe de la buse ; drapeau « en l'air » +0xF0 & 0x80. Dès qu'il retombe à 0
+Read in the DOL (GMSE01):
+- TPopo::checkTrigger 0x800E8898, called by the PossessedNozzle nerve:
+  R trigger = (u8) *(*(gpMarioOriginal + 0x4FC) + 0xB4); > 0x14: fill
+  +0x198 += R * prm+0x42C, capped at prm+0x404; released (< 0x14) and
+  fill > prm+0x440 (or +0x1CC) -> launch.
+- TNervePopoFly 0x800E6078, step 0: velocity = prm+0x3B4 * (+0x198 / prm+0x404)
+  * nozzle axis; airborne flag +0xF0 & 0x80. As soon as it drops to 0
   (contact) -> Explosion.
-- TPopo::flyBehavior 0x800E6AD0 : +0x19C compteur de vol, > prm+0x3DC ->
-  Explosion ; +0x198 *= 0,999 par exécution.
+- TPopo::flyBehavior 0x800E6AD0: +0x19C flight counter, > prm+0x3DC ->
+  Explosion; +0x198 *= 0.999 per call.
 
-Nerf courant = *(*(+0x8C) + 0x14) (objet statique, sa vtable en tête) ; pas du
-nerf = *(+0x8C) + 0x20.
+Current nerve = *(*(+0x8C) + 0x14) (static object, vtable first); nerve
+step = *(+0x8C) + 0x20.
 
     python tools/watch_popo.py [secondes]      (défaut 180)
 """
@@ -31,8 +31,8 @@ NERVES = {
     0x803BA4F8: "Thrown", 0x803BA508: "Wait", 0x803BA518: "Explosion",
     0x803BA528: "Fly", 0x803BA538: "Attack", 0x803BA548: "PossessedNozzle",
 }
-LIT = 0x804167B8          # 0.5 à 30 FPS, 2.0 au profil 120 ; M = 2 × lit
-JAI = 0x8040E430          # JAIBasic::basic, compteur d'images en +0x20
+LIT = 0x804167B8          # 0.5 at 30 FPS, 2.0 in the 120 profile; M = 2 * lit
+JAI = 0x8040E430          # JAIBasic::basic, frame counter at +0x20
 MARIO = 0x8040E0E8        # gpMarioOriginal
 
 
@@ -71,7 +71,7 @@ def frame(d: Dolphin) -> int:
 
 
 def hits(d: Dolphin, p: int) -> list[str]:
-    """Liste de collisions du THitActor : +0x44 THitActor**, +0x48 u16 nombre."""
+    """THitActor collision list: +0x44 THitActor**, +0x48 u16 count."""
     lst, n = d.u32(p + 0x44), d.u16(p + 0x48)
     if not d.is_valid_pointer(lst) or n == 0 or n > 16:
         return []
@@ -88,8 +88,8 @@ def hits(d: Dolphin, p: int) -> list[str]:
 
 
 def track(d: Dolphin, p: int) -> None:
-    """Boucle serrée sur un Poink en vol : touches du Poink et de sa boîte
-    TPopoCollision (+0x23C), écart boîte / Poink, jusqu'à la fin du vol."""
+    """Tight loop on a flying Poink until the flight ends: hits on the Poink and
+    on its TPopoCollision box (+0x23C), box-to-Poink distance."""
     col = d.u32(p + 0x23C)
     print(f"      suivi serré de {p:08X}, boîte {col:08X}", flush=True)
     seen, t0 = set(), time.perf_counter()
@@ -136,7 +136,7 @@ def main(argv: list[str]) -> int:
     print(f"  {params(d, popos[0])}", flush=True)
 
     last = {p: None for p in popos}
-    fly = {}                     # p -> (t0, img0, pas-compteur, pos0, maxstep)
+    fly = {}                     # p -> (t0, img0, pos0, maxstep, launch-logged)
     trig_last, t_start = None, time.perf_counter()
     while time.perf_counter() - t_start < dur:
         now, img = time.perf_counter(), frame(d)

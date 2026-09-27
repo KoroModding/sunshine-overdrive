@@ -1,51 +1,39 @@
-"""Batterie de régression physique — saut et course — à plusieurs cadences.
+"""Physics regression suite (jump and run) across several frame rates.
 
-Toutes les grandeurs mesurées ici **ne doivent pas bouger** d'un palier à
-l'autre. L'accumulateur maintient la simulation à 120 Hz quelle que soit la
-cadence d'affichage ; si une hauteur de saut ou une vitesse de course changeait,
-c'est que le découplage est rompu.
+Nothing measured here should change between tiers: the accumulator keeps the
+simulation at 120 Hz whatever the display rate. A difference means the
+decoupling is broken; look for the cause, do not compensate by editing
+`TJumpParams`, `TRunParams` or the `.prm` files.
 
-Le plan de départ est formel sur la conduite à tenir alors : **ne pas corriger en
-retouchant `TJumpParams`, `TRunParams` ou les `.prm`**. Un écart désigne une
-cause à chercher, pas un symptôme à compenser.
+Three methodology traps
+-----------------------
+1. Walls. An early version ran Mario into scenery: speed froze at 6.00 instead
+   of the ~32 reached in open ground, so the comparison only measured geometry.
+   `probe_open_direction` tries eight headings and keeps the one that covers
+   the most distance.
 
-Trois pièges méthodologiques, et comment ils sont traités
----------------------------------------------------------
-**1. Le mur.** Une première version de ce test mesurait Mario lancé contre un
-décor : sa vitesse se figeait à 6,00 au lieu des ~32 atteints en terrain libre,
-et les comparaisons ne mesuraient que la géométrie. La direction de course est
-donc choisie automatiquement au début (`probe_open_direction`), en essayant huit
-azimuts et en retenant celui qui fait parcourir le plus de distance.
+2. Wall-clock timing. "For 0.5 s" does not cover the same number of frames at
+   30 and 60 FPS, and input injection is a race whose success rate depends on
+   the frame count. Measured that way, jump height varied by 15% (an
+   instrumentation artifact). Everything is therefore indexed on substeps
+   (`substep_clock.py`): press duration and measurement window alike.
 
-**2. L'horloge murale.** Chronométrer « pendant 0,5 s » ne couvre pas le même
-nombre d'images à 30 et à 60 FPS, et l'injection d'entrées est une course dont
-le taux de réussite dépend du nombre d'images. Mesurée ainsi, une hauteur de
-saut variait de 15 % — un artefact d'instrumentation, pas de physique.
+3. The comparison criterion. Jump height and distance are output quantities
+   that depend on terrain as much as on the integrator. Measured 2026-09-15
+   near a wall in Delfino Plaza: 96.60 at 30 FPS vs 81.59 at 60 FPS, fully
+   reproducible, with the same initial impulse (`vy` = 42). Gravity is not the
+   cause (the free ballistic arc is identical at both tiers, see
+   `test_ballistic.py`); the scenery is.
 
-Tout est donc indexé sur le **sous-pas** (`substep_clock.py`) : durée de
-pression comme fenêtre de mesure. « Après 40 sous-pas » est comparable entre
-paliers ; « après 0,5 s » ne l'est pas.
+The verdict is therefore based on profiles: the per-substep sequence of
+vertical speeds during a jump, and of horizontal speeds during a run. Two
+decoupled tiers must produce the same sequence. Heights and distances are
+still printed, but only as indicative values.
 
-**3. Le critère de comparaison lui-même.** Une hauteur de saut et une distance
-parcourue sont des grandeurs **de sortie** : elles dépendent du relief autant
-que de l'intégrateur. Mesuré le 2026-09-15 près d'un mur de Delfino Plaza :
-96,60 à 30 FPS contre 81,59 à 60 FPS, de façon parfaitement reproductible, avec
-la **même** impulsion de départ (`vy` = 42) et la même indépendance à la durée
-de maintien. Ce n'est pas la gravité qui change — l'arc balistique libre est
-rigoureusement identique aux deux paliers, voir `test_ballistic.py` — c'est le
-décor qui intervient.
-
-Le verdict de ce test porte donc sur les **profils** : la suite des vitesses
-verticales du saut, sous-pas par sous-pas, et la suite des vitesses de course.
-Deux paliers découplés doivent produire la même suite. Les hauteurs et
-distances restent affichées, mais à titre **indicatif** : elles n'emportent
-aucun verdict.
-
-Cette révision du critère date du 2026-09-17. Ses fonctions pures — réduction
-d'une suite, recalage sur l'événement, comparaison — sont vérifiées hors ligne,
-mais l'ensemble **n'a pas encore été rejoué sur un Dolphin en cours
-d'exécution.** Le relevé de `04-tests.md` reste celui de l'ancien critère, avec
-sa fausse alarme signalée comme telle.
+Criterion revised 2026-09-17. The pure functions (sequence reduction, onset
+alignment, comparison) are checked offline, but the whole test has NOT yet been
+rerun against a live Dolphin. The reading in `04-tests.md` still uses the old
+criterion, with its false alarm flagged as such.
 
 Usage
 -----
@@ -70,18 +58,18 @@ from substep_clock import SubstepClock  # noqa: E402
 
 GP_MARIO = 0x8040E0E8
 OFF_POS = 0x10
-OFF_VEL = 0xA4  # d'après gpMarioSpeedX/Y/Z
+OFF_VEL = 0xA4  # from gpMarioSpeedX/Y/Z
 
 MAX_ATTEMPTS = 5
 
-# Durée du front de pression. Volontairement courte : le maintien du bouton est
-# assuré par `+0x18`, et rejouer le front à chaque image ferait enchaîner les
-# sauts (voir `pad.press`). La durée du saut, elle, est fixée en sous-pas.
+# Press-edge duration. Kept short on purpose: the hold is provided by `+0x18`,
+# and replaying the edge every frame would chain jumps (see `pad.press`). The
+# jump duration itself is set in substeps.
 EDGE_WINDOW = 0.12
 
 
 class Subject:
-    """Mario : lecture d'état et remise en place."""
+    """Mario: state readout and reset."""
 
     def __init__(self, dolphin: Dolphin) -> None:
         self.dolphin = dolphin
@@ -109,12 +97,11 @@ class Subject:
 
 
 def distinct(values: list[float]) -> list[float]:
-    """Réduit une suite sur-échantillonnée à ses valeurs successives distinctes.
+    """Reduce an oversampled sequence to its successive distinct values.
 
-    Le sondage tourne à ~400 000 lectures par seconde contre 120 intégrations :
-    chaque valeur est vue des centaines de fois. Ne garder que les changements
-    rend la suite comparable entre paliers — c'est la suite des états de la
-    simulation, plus celle du sondage.
+    Polling runs at ~400,000 reads/s against 120 integrations/s, so each value
+    is seen hundreds of times. Keeping only the changes yields the sequence of
+    simulation states, which is comparable between tiers.
     """
     reduced: list[float] = []
     for value in values:
@@ -125,13 +112,12 @@ def distinct(values: list[float]) -> list[float]:
 
 
 def from_onset(values: list[float], threshold: float = 0.0) -> list[float]:
-    """Coupe la suite avant son premier dépassement de `threshold`.
+    """Drop everything before the first value above `threshold`.
 
-    Recadre le profil sur l'**événement** plutôt que sur le démarrage du
-    sondage. L'entrée injectée n'est pas vue à la même image selon la cadence :
-    le nombre de valeurs neutres qui précèdent l'impulsion varie donc d'un
-    palier à l'autre, et deux profils rigoureusement identiques sembleraient
-    diverger dès leur premier élément.
+    Aligns the profile on the event rather than on the start of polling. The
+    injected input is not seen on the same frame at every rate, so the number
+    of idle values before the impulse varies between tiers, and two identical
+    profiles would otherwise appear to diverge at their first element.
     """
     for index, value in enumerate(values):
         if value > threshold:
@@ -140,7 +126,7 @@ def from_onset(values: list[float], threshold: float = 0.0) -> list[float]:
 
 
 def compare_profiles(a: list[float], b: list[float]) -> tuple[bool, int, int]:
-    """Compare deux suites. Retourne (identiques, longueur comparée, index de divergence)."""
+    """Return (identical, compared length, divergence index)."""
     n = min(len(a), len(b))
     for index in range(n):
         if a[index] != b[index]:
@@ -149,11 +135,10 @@ def compare_profiles(a: list[float], b: list[float]) -> tuple[bool, int, int]:
 
 
 def prepare(subject: Subject, pad: Pad) -> None:
-    """Replace Mario et laisse le jeu voir la manette au neutre.
+    """Reset Mario and let the game see a neutral controller.
 
-    Les deux remises en place encadrent la stabilisation : la première pour que
-    Mario ne parte pas de l'état laissé par l'essai précédent, la seconde parce
-    que la physique a pu le déplacer pendant qu'on attendait.
+    The first reset clears the state left by the previous attempt; the second
+    undoes any movement physics applied while settling.
     """
     subject.reset()
     pad.settle(0.7)
@@ -162,7 +147,7 @@ def prepare(subject: Subject, pad: Pad) -> None:
 
 
 def probe_open_direction(subject: Subject, pad: Pad) -> tuple[float, float]:
-    """Cherche la direction de stick qui dégage le plus de distance."""
+    """Find the stick direction that covers the most distance."""
     best = (0.0, (0.0, 1.0))
     for i in range(8):
         angle = i * math.pi / 4
@@ -180,16 +165,15 @@ def probe_open_direction(subject: Subject, pad: Pad) -> tuple[float, float]:
 
 
 def jump(subject: Subject, pad: Pad, clock: SubstepClock, hold_substeps: int):
-    """Saut avec A maintenu pendant `hold_substeps` sous-pas.
+    """Jump with A held for `hold_substeps` substeps.
 
-    Retourne un relevé, ou None si l'entrée injectée n'a pas été vue :
+    Returns a reading, or None if the injected input was not seen:
 
-        hauteur   apogée relative — **indicative**, dépend du relief
-        vy max    impulsion initiale, discrimine le type de saut
-        profil    suite des vitesses verticales, sous-pas par sous-pas,
-                  recalée sur l'impulsion. C'est elle qui porte le verdict :
-                  elle ne dépend que de l'intégrateur tant que Mario ne
-                  touche rien.
+        hauteur   relative apex; indicative only, depends on terrain
+        vy max    initial impulse, identifies the jump type
+        profil    per-substep vertical speeds aligned on the impulse. This is
+                  what the verdict uses: it depends only on the integrator as
+                  long as Mario touches nothing.
     """
     prepare(subject, pad)
     base = subject.y()
@@ -217,15 +201,15 @@ def jump(subject: Subject, pad: Pad, clock: SubstepClock, hold_substeps: int):
 
 def run(subject: Subject, pad: Pad, clock: SubstepClock,
         direction: tuple[float, float], substeps: int):
-    """Course tenue pendant `substeps` sous-pas.
+    """Run held for `substeps` substeps.
 
-    Retourne un relevé, ou None si l'entrée n'a pas été vue :
+    Returns a reading, or None if the input was not seen:
 
-        vitesse max   palier de vitesse atteint
-        distance      **indicative** — un obstacle la tronque
-        profil        suite des vitesses horizontales, sous-pas par sous-pas,
-                      recalée sur le démarrage. C'est la courbe d'accélération
-                      de `TRunParams` ; elle porte le verdict.
+        vitesse max   top speed reached
+        distance      indicative only; an obstacle cuts it short
+        profil        per-substep horizontal speeds aligned on the start. This
+                      is the `TRunParams` acceleration curve; the verdict
+                      uses it.
     """
     prepare(subject, pad)
     start = subject.position()
@@ -245,11 +229,10 @@ def run(subject: Subject, pad: Pad, clock: SubstepClock,
 
 
 def attempt(function, *args):
-    """Réessaie tant que l'entrée injectée n'a pas été vue.
+    """Retry until the injected input is seen.
 
-    L'injection gagne la course dans la grande majorité des cas, pas dans tous.
-    Réessayer transforme un tirage en mesure ; sans cela un essai perdu se
-    lirait comme un écart de physique.
+    Injection wins the race most of the time, not always. Without retries a
+    lost attempt would read as a physics difference.
     """
     for _ in range(MAX_ATTEMPTS):
         result = function(*args)
@@ -305,8 +288,8 @@ def _main(argv: list[str]) -> int:
     if len(results) >= 2:
         first, last = list(results)[0], list(results)[-1]
 
-        # Grandeurs de sortie : affichées, mais sans valeur de verdict. Une
-        # hauteur d'apogée mesure autant le plafond que la gravité.
+        # Output quantities: printed but not used for the verdict. An apex
+        # height measures the ceiling as much as gravity.
         print()
         print("Grandeurs de sortie — indicatives, sensibles au relief")
         print(f"{'grandeur':<24} {f'{first} FPS':>11} {f'{last} FPS':>11} {'écart':>9}")
@@ -320,8 +303,8 @@ def _main(argv: list[str]) -> int:
             drift = abs(a - b) / a * 100 if a else 0.0
             print(f"{key:<24} {a:>11.2f} {b:>11.2f} {drift:>8.2f}%")
 
-        # Profils : le vrai critère. Même état de départ et même entrée dans
-        # une simulation découplée ⇒ même suite d'états, à l'identique.
+        # Profiles are the real criterion: same start state and same input in a
+        # decoupled simulation must give an identical state sequence.
         print()
         print("Profils par sous-pas — c'est ici que se joue le verdict")
         verdict_ok = True

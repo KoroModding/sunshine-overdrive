@@ -1,16 +1,16 @@
-"""Oiseau de sable (TSandBird, vtable 0x803CF2B4) : cadence de ses deux
-animations et vitesse de vol, pour trancher « trop lent ou impression ».
+"""Sand bird (TSandBird, vtable 0x803CF2B4): rate of its two animations and
+flight speed, to settle "too slow, or just an impression".
 
-TSandBird hérite de TJointCoin (loadAfter 0x801F761C, control 0x801F79C4) :
-- +0x138 MActor « movement » : avancé par TJointCoin::control, donc par
-  sous-pas ; la translation de son joint racine devient la position (+0x10).
-- +0x74  MActor « character » : avancé par control ET par TLiveActor::perform.
-Débit (frame ctrl 0, +0xC) posé au chargement : 0,25 × SMSGetAnmFrameRate().
+TSandBird derives from TJointCoin (loadAfter 0x801F761C, control 0x801F79C4):
+- +0x138 MActor "movement": advanced by TJointCoin::control, so per
+  substep; its root joint translation becomes the position (+0x10).
+- +0x74  MActor "character": advanced by control AND by TLiveActor::perform.
+Rate (frame ctrl 0, +0xC) set at load: 0.25 * SMSGetAnmFrameRate().
 
-Frame ctrl 0 = *(*(MActor + 0x28)) + 4 (MActor::getFrameCtrl 0x80238F08) ;
-J3DFrameCtrl : +0x6 début s16, +0x8 fin s16, +0xC débit f32, +0x10 trame f32.
+Frame ctrl 0 = *(*(MActor + 0x28)) + 4 (MActor::getFrameCtrl 0x80238F08);
+J3DFrameCtrl: +0x6 start s16, +0x8 end s16, +0xC rate f32, +0x10 frame f32.
 
-Attend qu'un oiseau apparaisse en MEM1, puis mesure par fenêtres :
+Waits for a bird to appear in MEM1, then measures over windows:
 
     python tools/watch_sandbird.py [fenêtres] [secondes]     (défaut 5 × 2 s)
 """
@@ -22,8 +22,8 @@ from dolphin import Dolphin  # noqa: E402
 
 VT_SANDBIRD = 0x803CF2B4
 VT_JOINTCOIN = 0x803D61D0
-LIT = 0x804167B8                  # 0.5 à 30 FPS, 2.0 au profil 120 ; M = 2 × lit
-JAI = 0x8040E430                  # JAIBasic::basic, compteur d'images en +0x20
+LIT = 0x804167B8                  # 0.5 at 30 FPS, 2.0 in the 120 profile; M = 2 * lit
+JAI = 0x8040E430                  # JAIBasic::basic, frame counter at +0x20
 
 
 def find(d: Dolphin, vt: int) -> list[int]:
@@ -71,7 +71,7 @@ def window(d: Dolphin, bird: int, dur: float) -> None:
                 continue
             start, end, _, fr = state(d, c)
             delta = fr - last[k]
-            if delta < 0:                      # bouclage de l'animation
+            if delta < 0:                      # animation loop wrap
                 delta += end - start
             acc[k] += delta
             last[k] = fr
@@ -101,7 +101,7 @@ def main(argv: list[str]) -> int:
     print("en attente d'un TSandBird en MEM1…", flush=True)
     while not (birds := find(d, VT_SANDBIRD)):
         time.sleep(2)
-    time.sleep(3)                                  # laisser loadAfter se faire
+    time.sleep(3)                                  # let loadAfter run
     birds = find(d, VT_SANDBIRD)
     coins = find(d, VT_JOINTCOIN)
     print(f"{len(birds)} TSandBird {[hex(b) for b in birds]}, {len(coins)} TJointCoin", flush=True)

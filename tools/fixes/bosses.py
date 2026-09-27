@@ -1,59 +1,56 @@
-"""Boss et décor : correctifs issus de l'audit du 2026-09-27 (docs/00-journal.md).
+"""Bosses and scenery: fixes from the 2026-09-27 audit (docs/00-journal.md).
 
-Chaque site a été relu au DOL US avant écriture (instruction d'origine vérifiée
-par `python tools/fixes/bosses.py`). M = 2 × littéral 0x804167B8, lu à
-l'exécution, sauf mention « M = 4 figé » (valeur écrite en dur, profil 120
-uniquement, comme doppler.py).
+Every site was re-read in the US DOL before writing (original instruction
+checked by `python tools/fixes/bosses.py`). M = 2 × literal 0x804167B8, read at
+run time, except where marked "M = 4 fixed" (hard-coded value, 120 profile
+only, like doppler.py).
 
-Groupes (activables séparément par GROUPS)
-==========================================
-shadow   Mario Ombre, pose de la signature (TEnemyMario +0x42F0). L'animation
-         avance PAR SOUS-PAS (0x8003FAB4 bl MActor::calcAnm, sous flag 0x1) avec
-         un débit SMSGetAnmFrameRate (0x800427CC, et débit par défaut du setBck
-         de l'état 0x12) : 4× trop lente, l'état ne se termine qu'avec
-         l'animation. Correctif : 0x8003FAB4 → bl SHADOW, qui remet à 2,0 le
-         débit du frame ctrl 0 **seulement s'il vaut exactement
-         SMSGetAnmFrameRate()** (débit × littéral == 1), puis saute à calcAnm.
-         Un débit nul ou choisi autrement n'est pas touché ; à 30 FPS c'est un
-         no-op.
-koopajr  Sous-marin de Bowser Jr : TKoopaJrSubmarine::moveSwing (0x801190F8),
-         appelé une fois par IMAGE (0x801195BC, bloc du flag 0x2 testé en
-         0x801194B4). Six incréments par image divisés par M : décroissance
-         0x190 (0x80119174), phase +0x180 (0x801191E0), montée 0x198 ×2
-         (0x8011928C, 0x801192DC), décroissance 0x198 (0x80119320), phase +0x130
-         (0x8011938C). L'impulsion d'arrosage (0x80119130, une par message)
-         n'est pas touchée : fréquence des messages non mesurée.
-grip     Socles de la baignoire (TBathtubGrip) : animation d'effondrement
-         avancée par sous-pas (calcAnm dans control) ET par image
-         (TLiveActor::perform). 0x801FBBC4 bl SMSGetAnmFrameRate → bl JCCHAR
-         (actors.py) : f1 = 10/(4+M) → même nombre de trames par seconde qu'à
-         30 FPS (5 avances/image × 2,0 = 2 avances/image × 1,25 × 4).
-         Confiance MOYENNE : l'avance par image est déduite, pas mesurée ; si
-         elle n'a pas lieu, il faudrait 2,0 (CONST2).
-wiggler  Chenille géante : plancher brut du débit de marche
-         (0x800F2680 fmr f31, f0 ; f0 = mSLWalkBckRateMin, anim par image) →
-         bl WIGGLER : f31 = f0 / M.
-petey    Tête de Petey (calcHeadDir, par image) : sMaxRotationStep /
-         sMinRotationStep 0x8040C2F0 / 0x8040C2F4 : ±1,0 → ±0,25 (M = 4 figé ;
-         seuls lecteurs : calcHeadDir+0x2D0/+0x2E8, xref vérifiée).
-eeleye   Yeux de l'anguille : fondu −0,01 par image (0x800D6414 lfs f1) →
-         bl EELEYE : f1 = 0,01 / M.
-gooper   Calmar : traîne de particules après dégâts à l'œil, 5 images
-         (0x800750D0 li r0, 5) → li r0, 20 (M = 4 figé).
-mecha    Mecha-Bowser, échelle de la flamme ±0,05 par image (0x800A1510 et
-         0x800A1538 lfs f0) → bl FLAME : f0 = 0,05 / M.
-bbill    Bullet Bills de la baignoire : clignotement +0x1F8 par image
-         (0x80132328 lfs f0, 0x1F8(r30)) → bl BBILL : f0 = incrément / M.
-         La fumée (intervalle 0x1D4) n'est pas corrigée.
-pinna    Décor de Pinna Park, code par sous-pas × SMSGetAnmFrameRate × 0,25
-         (motif des oiseaux) : grande roue (0x801D6998, 0x801D69C8,
-         initMapObj 0x801D690C) et rail des montagnes russes (0x801D4114) →
-         bl CONST2 (2,0). Le wagon (double mise à jour, déduite) n'est pas
-         corrigé.
+Groups (enabled individually via GROUPS)
+========================================
+shadow   Shadow Mario, signature pose (TEnemyMario +0x42F0). The animation
+         advances PER SUBSTEP (0x8003FAB4 bl MActor::calcAnm, under flag 0x1) at
+         a rate of SMSGetAnmFrameRate (0x800427CC, also the default rate of the
+         setBck of state 0x12): 4× too slow, and the state only ends with the
+         animation. Fix: 0x8003FAB4 → bl SHADOW, which resets frame ctrl 0's
+         rate to 2.0 **only if it is exactly SMSGetAnmFrameRate()**
+         (rate × literal == 1), then jumps to calcAnm. A zero rate or one set
+         otherwise is left alone; at 30 FPS this is a no-op.
+koopajr  Bowser Jr's submarine: TKoopaJrSubmarine::moveSwing (0x801190F8),
+         called once per FRAME (0x801195BC, block of flag 0x2 tested at
+         0x801194B4). Six per-frame increments divided by M: decay 0x190
+         (0x80119174), phase +0x180 (0x801191E0), rise 0x198 ×2 (0x8011928C,
+         0x801192DC), decay 0x198 (0x80119320), phase +0x130 (0x8011938C).
+         The spray impulse (0x80119130, one per message) is left alone: message
+         frequency not measured.
+grip     Bathtub pedestals (TBathtubGrip): collapse animation advanced per
+         substep (calcAnm in control) AND per frame (TLiveActor::perform).
+         0x801FBBC4 bl SMSGetAnmFrameRate → bl JCCHAR (actors.py):
+         f1 = 10/(4+M) → same animation frames per second as at 30 FPS
+         (5 advances/frame × 2.0 = 2 advances/frame × 1.25 × 4).
+         MEDIUM confidence: the per-frame advance is inferred, not measured; if
+         it does not happen, 2.0 (CONST2) would be needed.
+wiggler  Wiggler: raw floor of the walk rate (0x800F2680 fmr f31, f0;
+         f0 = mSLWalkBckRateMin, per-frame anim) → bl WIGGLER: f31 = f0 / M.
+petey    Petey's head (calcHeadDir, per frame): sMaxRotationStep /
+         sMinRotationStep 0x8040C2F0 / 0x8040C2F4: ±1.0 → ±0.25 (M = 4 fixed;
+         only readers: calcHeadDir+0x2D0/+0x2E8, xref checked).
+eeleye   Eel's eyes: fade −0.01 per frame (0x800D6414 lfs f1) →
+         bl EELEYE: f1 = 0.01 / M.
+gooper   Gooper Blooper: particle trail after eye damage, 5 frames
+         (0x800750D0 li r0, 5) → li r0, 20 (M = 4 fixed).
+mecha    Mecha-Bowser, flame scale ±0.05 per frame (0x800A1510 and
+         0x800A1538 lfs f0) → bl FLAME: f0 = 0.05 / M.
+bbill    Bathtub Bullet Bills: blink +0x1F8 per frame
+         (0x80132328 lfs f0, 0x1F8(r30)) → bl BBILL: f0 = increment / M.
+         The smoke (interval 0x1D4) is not fixed.
+pinna    Pinna Park scenery, per-substep code × SMSGetAnmFrameRate × 0.25
+         (same pattern as the birds): Ferris wheel (0x801D6998, 0x801D69C8,
+         initMapObj 0x801D690C) and roller-coaster rail (0x801D4114) →
+         bl CONST2 (2.0). The cart (double update, inferred) is not fixed.
 
-Écartés faute de mesure : Roi Boo (genAttacker), Chomp de feu (bloc porteur),
-raie (blendWave, un site non localisé ; ombre), calmar G1, Chenille (raccord
-de culbute).
+Left out for lack of measurement: King Boo (genAttacker), fire Chomp (carrier
+block), manta (blendWave, one site not located; shadow), Gooper Blooper G1,
+Wiggler (tumble transition).
 """
 
 from __future__ import annotations
@@ -69,14 +66,14 @@ import birds  # noqa: E402
 
 CALC_ANM = 0x80239878
 ANM_RATE = 0x802A7BD8
-CONST2 = birds.CONST2            # 0x80002410, f1 = 2,0
+CONST2 = birds.CONST2            # 0x80002410, f1 = 2.0
 K_2 = birds.K_2                  # 0x80002400
-K_5 = 0x80002404                 # 5,0 — actors.py
-JCCHAR = 0x80002420              # actors.py : f1 = 5 / (2 + lit) = 10 / (4 + M)
+K_5 = 0x80002404                 # 5.0, actors.py
+JCCHAR = 0x80002420              # actors.py: f1 = 5 / (2 + lit) = 10 / (4 + M)
 
 CAVE = 0x800024C0
 CAVE_END = 0x80002800
-K_1 = 0x800024C0                 # 1,0
+K_1 = 0x800024C0                 # 1.0
 CODE = 0x800024D0
 
 GROUPS = ["shadow", "koopajr", "grip", "wiggler", "petey", "eeleye", "gooper",
@@ -88,7 +85,7 @@ LOAD_M = """
     fadds f12, f12, f12
 """
 
-# (nom, source) — assemblés à la suite à partir de CODE.
+# (name, source), assembled back to back from CODE.
 ROUTINES: list[tuple[str, str]] = [
     ("SHADOW", f"""
     lwz    r12, 0x28(r3)
@@ -131,7 +128,7 @@ go:
     ("BBILL", "lfs f0, 0x1f8(r30)\nb {KJ_SCALE}"),
 ]
 
-# (groupe, site, mot d'origine attendu, cible : nom de routine | adresse | ("mot", valeur))
+# (group, site, expected original word, target: routine name | address | ("mot", value))
 SITES: list[tuple[str, int, int, object]] = [
     ("shadow", 0x8003FAB4, 0x481F9DC5, "SHADOW"),
     ("koopajr", 0x80119174, 0xC002AD8C, "KJ_A"),
@@ -155,7 +152,7 @@ SITES: list[tuple[str, int, int, object]] = [
     ("pinna", 0x801D4114, 0x480D3AC5, CONST2),
 ]
 
-# Sources de actors.py réutilisées telles quelles (mêmes adresses, mêmes mots).
+# Reused verbatim from actors.py (same addresses, same words).
 SRC_JCCHAR = """
     lis   r12, 0x8000
     lfs   f0, 0x2400(r12)

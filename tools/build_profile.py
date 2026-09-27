@@ -1,40 +1,40 @@
-"""Assemble toutes les écritures du profil 120 FPS et régénère deliver/GMSE01.ini.
+"""Collect every write of the 120 FPS profile and regenerate deliver/GMSE01.ini.
 
-Sources :
-    tools/build_caves.py     particules, drapeaux de port JAI
+Sources:
+    tools/build_caves.py     particles, JAI port flags
     tools/fixes/*.py         hx, fader, menus, actors, contexts, sound
-    ci-dessous               nop 0x802FCB24, portails TModelGate
+    below                    nop 0x802FCB24, TModelGate portals
 
-Contrôles, tous bloquants :
-    - aucun mot aux adresses des crochets HLE de Dolphin (0x800018A8, 0x80002FFC) ;
-    - aucune adresse écrite deux fois avec des valeurs différentes ;
-    - chaque site hors grottes contient dans le DOL un mot différent de l'écriture
-      (sinon l'écriture serait sans effet — signe d'une erreur d'adresse) ;
-    - chaque branchement écrit vise soit une adresse écrite par le profil, soit un
-      symbole de la carte, soit l'instruction qui suit un site détourné. Garde-fou
-      contre le bogue de Keystone : après un `slwi`, les branchements suivants du
-      même bloc étaient calculés depuis une mauvaise base (2026-09-23).
+Checks, all blocking:
+    - no word at Dolphin's HLE hook addresses (0x800018A8, 0x80002FFC);
+    - no address written twice with different values;
+    - every site outside the code caves holds a DOL word different from the
+      write (otherwise the write has no effect, a sign of a wrong address);
+    - every written branch targets an address written by the profile, a map
+      symbol, or the instruction after a hooked site. Guards against the
+      Keystone bug: after a `slwi`, later branches in the same block were
+      computed from a wrong base (2026-09-23).
 
-Chaque ligne est CONDITIONNELLE (`adresse:dword:valeur:comparant`) : Dolphin
-n'écrit que si la mémoire contient encore le comparant — le mot d'origine du
-DOL, ou 0 dans les grottes. Sans cela, le PatchEngine réécrit toutes les lignes
-à chaque champ VI et invalide à chaque fois le code JIT correspondant : avec
-426 lignes dont beaucoup dans du code chaud, l'émulation est tombée à 14 champs
-par seconde au lieu de 120 (relevé 2026-09-23 : 14,3 champs/s, 1,00 champ par
-image — le jeu n'était pas en cause). Les mots nuls des grottes sont omis.
+Every line is CONDITIONAL (`address:dword:value:comparand`): Dolphin only
+writes if memory still holds the comparand (the original DOL word, or 0 in
+the code caves). Otherwise the PatchEngine rewrites every line on each VI
+field and invalidates the matching JIT code each time: with 426 lines, many
+in hot code, emulation dropped to 14 VI fields per second instead of 120
+(measured 2026-09-23: 14.3 fields/s, 1.00 field per frame; the game was not
+at fault). Zero words in the code caves are omitted.
 
-Le littéral 0x804167B8 n'est plus écrit par le profil : tools/fixes/contexts.py
-le pose à chaque image selon le contexte (30 FPS au boot, logos, intro).
+The literal 0x804167B8 is no longer written by the profile: tools/fixes/contexts.py
+sets it every frame according to context (30 FPS at boot, logos, intro).
 
 Usage
 -----
-    python tools/build_profile.py            vérifie et affiche le bloc [OnFrame]
-    python tools/build_profile.py --write    vérifie et réécrit deliver/GMSE01.ini
+    python tools/build_profile.py            check and print the [OnFrame] block
+    python tools/build_profile.py --write    check and rewrite deliver/GMSE01.ini
     python tools/build_profile.py --write --modules hx,fader
-        seulement ces modules de tools/fixes (défaut : tous) ; « --modules none »
-        = profil de base. « --inconditionnel » : lignes sans comparant, comme
-        avant le 2026-09-23 (réécrites à chaque champ VI). Sans le module contexts, le littéral 0x804167B8 est
-        posé à 2.0f par [OnFrame] comme avant la passe complète.
+        only these tools/fixes modules (default: all); "--modules none"
+        = base profile. "--inconditionnel": lines without comparand, as before
+        2026-09-23 (rewritten every VI field). Without the contexts module, the
+        literal 0x804167B8 is set to 2.0f by [OnFrame] as before the full pass.
 """
 
 from __future__ import annotations
@@ -57,8 +57,8 @@ MAP = ROOT / "work" / "maps" / "us.map"
 DOL = ROOT / "work" / "dol" / "GMSE01.dol"
 
 BASE = [
-    (0x802FCB24, 0x60000000),   # waitForRetrace : bl VIWaitForRetrace -> nop
-    (0x801EC29C, 0xC002D564),   # TModelGate::loadAfter : +0xD8 <- 0.005f (0x80414104)
+    (0x802FCB24, 0x60000000),   # waitForRetrace: bl VIWaitForRetrace -> nop
+    (0x801EC29C, 0xC002D564),   # TModelGate::loadAfter: +0xD8 <- 0.005f (0x80414104)
 ]
 MODULES = ["hx", "fader", "menus", "actors", "contexts", "sound", "fades", "soundsets", "widescreen", "doppler", "petey", "birds", "eel", "bosses", "goop", "jointcoin", "poink", "loopsnd"]
 CAVES = (0x80001800, 0x80003000)
@@ -75,8 +75,8 @@ def collect(modules: list[str] = MODULES) -> list[tuple[str, int, int]]:
 
 
 def declared_targets(modules: list[str] = MODULES) -> set[int]:
-    """Cibles de branchement internes à une fonction du jeu, déclarées
-    explicitement par un module (attribut TARGETS), relues à son listing."""
+    """Branch targets inside a game function, declared explicitly by a module
+    (TARGETS attribute) and checked against its listing."""
     out: set[int] = set()
     for name in modules:
         out |= set(getattr(importlib.import_module(name), "TARGETS", ()))
@@ -102,11 +102,11 @@ def check(entries: list[tuple[str, int, int]], extra: set[int] = frozenset()) ->
             errors.append(f"conflit {a:08X} : {seen[a][0]}={seen[a][1]:08X} / {mod}={v:08X}")
         seen[a] = (mod, v)
 
-    # Crochets HLE que Dolphin pose dans la zone du gestionnaire Gecko, actifs
-    # même sans code Gecko : y placer une instruction fait exécuter du code
-    # d'émulateur. 0x800018A8 (Gecko::ENTRY_POINT) vide tout le cache JIT à
-    # chaque passage — 8 champs/s pendant Hx_Circle, 2026-09-27 ;
-    # 0x80002FFC (HLE_TRAMPOLINE_ADDRESS) rétablit LR/SP/PC.
+    # HLE hooks Dolphin places in the Gecko handler area, active even without
+    # Gecko codes: an instruction there runs emulator code. 0x800018A8
+    # (Gecko::ENTRY_POINT) flushes the whole JIT cache on every pass, 8 fields/s
+    # during Hx_Circle (2026-09-27); 0x80002FFC (HLE_TRAMPOLINE_ADDRESS)
+    # restores LR/SP/PC.
     for a in (0x800018A8, 0x80002FFC):
         if a in seen:
             errors.append(f"{a:08X} ({seen[a][0]}) : adresse de crochet HLE de Dolphin, interdite")
@@ -118,7 +118,7 @@ def check(entries: list[tuple[str, int, int]], extra: set[int] = frozenset()) ->
             if dol.u32(a) == seen[a][1]:
                 errors.append(f"{a:08X} ({seen[a][0]}) : écriture identique au DOL, sans effet")
         except Exception:
-            pass                                    # données hors fichier (BSS)
+            pass                                    # data outside the file (BSS)
 
     starts = symbol_starts() | set(extra)
     returns = {a + 4 for a in sites}
@@ -160,7 +160,7 @@ def onframe_block(entries, conditional: bool = True) -> str:
             continue
         c = comparand(dol, a)
         if v == c:
-            continue                                # grotte : mot nul déjà en place
+            continue                                # code cave: zero word already in place
         lines.append(f"0x{a:08X}:dword:0x{v:08X}:0x{c:08X}")
     return "\n".join(lines) + "\n"
 

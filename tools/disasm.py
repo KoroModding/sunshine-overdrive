@@ -1,37 +1,36 @@
-"""Désassemblage annoté du DOL : symboles, cibles de branchement, littéraux.
+"""Annotated DOL disassembly: symbols, branch targets, literals.
 
-Un listing Capstone brut est illisible pour ce projet : les appels sont des
-adresses nues et, surtout, les constantes flottantes apparaissent sous la forme
-`lfs f0, -0x3e8(r2)` sans révéler ni l'adresse ni la valeur. Or tout le travail
-sur le framerate de Sunshine porte précisément sur ces littéraux.
+A raw Capstone listing is unreadable for this project: calls are bare
+addresses and, above all, float constants show up as `lfs f0, -0x3e8(r2)`
+without the address or the value. The Sunshine framerate work is precisely
+about those literals.
 
-Ce module ajoute trois annotations :
+Three annotations are added:
 
-1. **Symboles** — chaque instruction est préfixée par le symbole courant, et
-   les cibles de `b` / `bl` sont résolues en noms démanglés.
+1. Symbols: each instruction is prefixed by the current symbol, and `b` / `bl`
+   targets are resolved to demangled names.
 
-2. **Petites données** — les accès relatifs à `r2` et `r13` sont résolus en
-   adresse absolue, et la valeur qui s'y trouve est affichée en hexadécimal,
-   en flottant et en entier. Les deux registres sont initialisés une fois pour
-   toutes par `__init_registers` et ne changent jamais ensuite ; leurs valeurs
-   sont lues dans le DOL plutôt que codées en dur, ce qui rend le module
-   indépendant de la région.
+2. Small data: `r2`- and `r13`-relative accesses are resolved to an absolute
+   address, and the value there is shown as hex, float and integer. Both
+   registers are set once by `__init_registers` and never change; their
+   values are read from the DOL rather than hardcoded, which keeps the module
+   region-independent.
 
-   ABI PowerPC EABI :
-       r2  base de `.sdata2` — petites données en lecture seule (littéraux)
-       r13 base de `.sdata`  — petites données en lecture/écriture
+   PowerPC EABI:
+       r2  base of `.sdata2`: read-only small data (literals)
+       r13 base of `.sdata`:  read/write small data
 
-3. **Bornes de fonction** — le listing s'arrête au symbole suivant, ou après un
-   `blr` non suivi de code atteignable, selon le mode demandé.
+3. Function bounds: the listing stops at the next symbol, or after a `blr`
+   not followed by reachable code, depending on the mode.
 
-Usage en ligne de commande
---------------------------
-    python disasm.py <dol> <map> <fonction-ou-adresse> [nb-instructions]
+Command line
+------------
+    python disasm.py <dol> <map> <function-or-address> [num-instructions]
 
     python disasm.py work/dol/GMSE01.dol work/maps/us.map SMSGetVSyncTimesPerSec__Fv
     python disasm.py work/dol/GMSE01.dol work/maps/us.map 0x802FC9A4 80
 
-Voir docs/03-outillage.md.
+See docs/03-outillage.md.
 """
 
 from __future__ import annotations
@@ -45,20 +44,20 @@ sys.path.insert(0, str(Path(__file__).parent))
 from dol import Dol  # noqa: E402
 from symbols import SymbolTable, demangle  # noqa: E402
 
-# Instructions dont l'opérande mémoire vise les petites données quand le
-# registre de base est r2 ou r13.
+# Instructions whose memory operand targets small data when the base register
+# is r2 or r13.
 _SDATA_LOADS = {
     "lfs", "lfd", "lwz", "lhz", "lha", "lbz", "stw", "sth", "stb", "stfs", "stfd",
     "addi", "lwzu", "stwu",
 }
 
-# Branchements dont l'opérande unique est une adresse absolue résolue par
-# Capstone (il applique déjà le déplacement relatif au PC).
+# Branches whose single operand is an absolute address (Capstone already
+# applies the PC-relative displacement).
 _BRANCHES = {"b", "bl", "ba", "bla", "beq", "bne", "bge", "ble", "bgt", "blt", "bdnz"}
 
 
 class AnnotatedDisassembler:
-    """Produit un listing annoté d'une plage du DOL."""
+    """Annotated listing of a DOL range."""
 
     def __init__(self, dol: Dol, symbols: SymbolTable) -> None:
         self.dol = dol
@@ -66,19 +65,18 @@ class AnnotatedDisassembler:
         self.r2, self.r13 = self._read_sdata_bases()
 
     def _init_registers_address(self) -> int:
-        """Adresse de `__init_registers`.
+        """Address of `__init_registers`.
 
-        Prise dans la map quand elle s'y trouve. Sinon, on la déduit : la
-        première instruction du point d'entrée est un `bl __init_registers`.
-        Ce repli permet d'analyser un DOL pour lequel aucune map n'existe —
-        c'est le cas de PAL et de toute révision non couverte.
+        Taken from the map when present. Otherwise derived from the entry
+        point, whose first instruction is `bl __init_registers`. The fallback
+        allows analysing a DOL with no map (PAL, or any uncovered revision).
         """
         address = self.symbols.address_of("__init_registers")
         if address is not None:
             return address
 
         (word,) = struct.unpack(">I", self.dol.read(self.dol.entry_point, 4))
-        if (word >> 26) != 18 or not (word & 1):  # attendu : bl (opcode 18, LK=1)
+        if (word >> 26) != 18 or not (word & 1):  # expected: bl (opcode 18, LK=1)
             raise ValueError(
                 f"le point d'entrée 0x{self.dol.entry_point:08X} ne commence pas "
                 "par un « bl » : impossible de localiser __init_registers"
@@ -89,12 +87,11 @@ class AnnotatedDisassembler:
         return self.dol.entry_point + displacement
 
     def _read_sdata_bases(self) -> tuple[int, int]:
-        """Lit r2 et r13 dans `__init_registers`.
+        """Read r2 and r13 from `__init_registers`.
 
-        La fonction charge chaque base par la paire canonique
-        `lis rX, hi ; ori rX, rX, lo`. On décode ces quatre instructions
-        plutôt que de coder les adresses en dur, pour que l'outil fonctionne
-        aussi sur les DOL PAL et JP.
+        Each base is loaded with the canonical `lis rX, hi ; ori rX, rX, lo`
+        pair. Decoding them instead of hardcoding the addresses makes the tool
+        work on PAL and JP DOLs too.
         """
         address = self._init_registers_address()
         blob = self.dol.read(address, 0x20)
@@ -119,11 +116,10 @@ class AnnotatedDisassembler:
         return bases[2], bases[13]
 
     def _describe_value(self, address: int) -> str:
-        """Décrit la donnée à `address` : hexa, flottant et entier signé.
+        """Describe the data at `address` as hex, float and signed int.
 
-        Les trois interprétations sont montrées côte à côte parce que rien dans
-        l'instruction ne dit laquelle est la bonne — `lwz` sur un flottant est
-        courant dans du code de copie.
+        All three are shown because nothing in the instruction says which is
+        right: `lwz` on a float is common in copy code.
         """
         try:
             raw = self.dol.u32(address)
@@ -137,7 +133,7 @@ class AnnotatedDisassembler:
         return f"-> 0x{address:08X} = 0x{raw:08X}  f32 {as_float:<14.9g} i32 {signed}{name}"
 
     def _annotate(self, address: int, mnemonic: str, operands: str) -> str:
-        """Commentaire à accoler à une instruction, ou chaîne vide."""
+        """Comment for an instruction, or an empty string."""
         if mnemonic in _BRANCHES and operands.startswith("0x"):
             try:
                 target = int(operands.split(",")[-1].strip(), 16)
@@ -158,10 +154,10 @@ class AnnotatedDisassembler:
         return ""
 
     def listing(self, start: int, count: int | None = None, stop_at_symbol: bool = True) -> str:
-        """Listing annoté à partir de `start`.
+        """Annotated listing from `start`.
 
-        Si `count` est None, désassemble jusqu'au symbole suivant — ce qui
-        correspond à la fonction entière quand la map est complète.
+        If `count` is None, disassemble up to the next symbol, i.e. the whole
+        function when the map is complete.
         """
         if count is None:
             following = [a for a in self.symbols._addresses if a > start]
@@ -191,10 +187,10 @@ class AnnotatedDisassembler:
 
 
 def resolve(symbols: SymbolTable, target: str) -> int:
-    """Convertit un argument de ligne de commande en adresse.
+    """Turn a command-line argument into an address.
 
-    Accepte une adresse (« 0x802FC9A4 »), un symbole manglé exact, ou une
-    sous-chaîne de nom si elle ne correspond qu'à un seul symbole.
+    Accepts an address ("0x802FC9A4"), an exact mangled symbol, or a name
+    substring if it matches exactly one symbol.
     """
     try:
         return int(target, 0)

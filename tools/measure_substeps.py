@@ -1,28 +1,26 @@
-"""Phase 0 — mesure du compte de sous-pas par sondage de l'accumulateur.
+"""Phase 0: count substeps by polling the accumulator.
 
-Principe
---------
-`TMarDirector::direct()` maintient en `this+0x54` un accumulateur en virgule
-fixe : il y ajoute `vsyncRate` une fois par image rendue, puis lui soustrait 5
-à chaque sous-pas jusqu'à passer sous 5.
+Principle
+---------
+`TMarDirector::direct()` keeps a fixed-point accumulator at `this+0x54`: it
+adds `vsyncRate` once per rendered frame, then subtracts 5 per substep until it
+drops below 5.
 
-    +vsyncRate   -> début d'une image rendue
-    -5           -> un sous-pas
+    +vsyncRate   -> start of a rendered frame
+    -5           -> one substep
 
-Sonder cette seule valeur assez vite suffit donc à compter les deux. À 30 FPS
-un sous-pas dure ~2,1 ms alors que le sondage tourne à ~2,5 µs : la marge est
-de trois ordres de grandeur.
+Polling that single value fast enough counts both. At 30 FPS a substep lasts
+~2.1 ms while a poll takes ~2.5 us: three orders of magnitude of margin.
 
-Auto-validation
+Self-validation
 ---------------
-C'est ce qui rend la mesure fiable sans injecter de code. Si le sondage rate
-une transition, l'écart observé n'est plus 5 mais 10 ou 15. Le script vérifie
-donc que **tout décrément vaut exactement 5** et que **tout incrément vaut
-exactement la même valeur**. Si une seule transition anormale apparaît, la
-mesure est déclarée non valide plutôt que rapportée.
+If polling misses a transition, the observed step is 10 or 15 instead of 5.
+The script therefore checks that every decrement is exactly 5 and every
+increment has the same value; a single anomalous transition marks the
+measurement invalid instead of reporting it.
 
-Cette approche ne demande ni point d'arrêt, ni hook, ni modification du code —
-donc rien qui puisse se heurter au cache JIT de Dolphin.
+No breakpoint, hook or code patch is involved, so nothing can clash with
+Dolphin's JIT cache.
 
 Usage
 -----
@@ -44,16 +42,16 @@ GP_MAR_DIRECTOR = 0x8040E178
 OFF_ACCUMULATOR = 0x54
 OFF_FLAGS = 0x4C
 
-LITERAL_VSYNC = 0x804167B8  # 0.5f -> horloge logique
+LITERAL_VSYNC = 0x804167B8  # 0.5f -> logic clock
 LITERAL_60HZ = 0x804167D8
 PATCH_SITE_RETRACE = 0x802FCB24  # bl VIWaitForRetrace
 
 
 def sample(dolphin: Dolphin, address: int, duration: float):
-    """Sonde `address` pendant `duration` secondes.
+    """Poll `address` for `duration` seconds.
 
-    Retourne la liste des transitions (instant, ancienne valeur, nouvelle
-    valeur) et le nombre total de lectures effectuées.
+    Returns the transitions (time, old value, new value), the total number of
+    reads, and the elapsed time.
     """
     transitions = []
     reads = 0
@@ -75,15 +73,15 @@ def sample(dolphin: Dolphin, address: int, duration: float):
 
 
 def analyse(transitions, elapsed: float) -> dict:
-    """Classe les transitions et vérifie la cohérence de l'échantillonnage."""
+    """Classify transitions and check sampling consistency."""
     decrements = [t for t in transitions if t[2] < t[1]]
     increments = [t for t in transitions if t[2] > t[1]]
 
     steps_down = Counter(t[1] - t[2] for t in decrements)
     steps_up = Counter(t[2] - t[1] for t in increments)
 
-    # Un sondage complet ne voit que des décréments de 5 et des incréments
-    # tous égaux à vsyncRate.
+    # Complete polling sees only decrements of 5 and increments all equal to
+    # vsyncRate.
     valid = set(steps_down) <= {5} and len(steps_up) <= 1
 
     return {

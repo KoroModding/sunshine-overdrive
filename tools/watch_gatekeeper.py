@@ -1,20 +1,20 @@
-"""Gatekeeper (TBiancoGateKeeper, vtable 0x803BB71C) : animations, état des
-sons d'animation et cris, pour trancher « il crie deux fois à chaque coup ».
+"""Gatekeeper (TBiancoGateKeeper, vtable 0x803BB71C): animations, animation
+sound state and cries, to settle "he cries twice per hit".
 
-Lu dans le DOL (GMSE01) :
-- TBiancoGateKeeper::changeBck 0x800FB718 : *(MActor + 0xC) = bloc BCK
-  (+0 indice d'animation, +4 J3DFrameCtrl : +0x6 début, +0x8 fin, +0xC
-  débit, +0x10 trame) ; init de la trame, débit = SMSGetAnmFrameRate(), puis
-  TLiveActor::setAnmSound -> MAnmSound::initAnmSound (réinitialisation).
-- TLiveActor : +0x80 MAnmSound* (hérite de JAIAnimeSound).
+Read in the DOL (GMSE01):
+- TBiancoGateKeeper::changeBck 0x800FB718: *(MActor + 0xC) = BCK block
+  (+0 animation index, +4 J3DFrameCtrl: +0x6 start, +0x8 end, +0xC rate,
+  +0x10 frame); resets the frame, rate = SMSGetAnmFrameRate(), then
+  TLiveActor::setAnmSound -> MAnmSound::initAnmSound (reset).
+- TLiveActor: +0x80 MAnmSound* (derived from JAIAnimeSound).
 - JAIAnimeSound (setAnimSoundActor 0x8030019C, initActorAnimSound
-  0x80300010, playActorAnimSound 0x803005F0) :
-    +0x00 8 emplacements de 0xC : +0 actif (u8), +4 JAISound*, +8 événement*
-    +0x78 mode (1 = avant), +0x7C index de départ, +0x80 index courant,
-    +0x84 compteur de boucles, +0x88 trame précédente (f32),
-    +0x90 table (.bas) : +0 u16 nombre, événements de 0x20 à partir de +8
-    (événement : +0 id du son, +4 trame de début, +8 trame de fin, +0x10
-    drapeaux, +0x16 n° de boucle).
+  0x80300010, playActorAnimSound 0x803005F0):
+    +0x00 8 slots of 0xC: +0 active (u8), +4 JAISound*, +8 event*
+    +0x78 mode (1 = forward), +0x7C start index, +0x80 current index,
+    +0x84 loop counter, +0x88 previous animation frame (f32),
+    +0x90 table (.bas): +0 u16 count, 0x20-byte events from +8
+    (event: +0 sound id, +4 start frame, +8 end frame, +0x10 flags,
+    +0x16 loop number).
 
     python tools/watch_gatekeeper.py [secondes]      (défaut 120)
 """

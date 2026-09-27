@@ -1,6 +1,6 @@
-"""Vitesse des oiseaux (TAnimalBird, vtable 0x803ABE78) : balaie la MEM1 à la
-recherche des instances, puis mesure leur déplacement (position +0x10) sur une
-fenêtre, en unités par seconde et par image rendue.
+"""Bird speed (TAnimalBird, vtable 0x803ABE78): scans MEM1 for instances, then
+measures their displacement (position +0x10) over a window, in units per
+second and per rendered frame.
 
     python tools/watch_birds.py [secondes]     (défaut 3)
 """
