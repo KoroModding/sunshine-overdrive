@@ -15,3 +15,8 @@ CLAUDE.md
 # Python
 __pycache__/
 *.pyc
+
+# Intermédiaires de compilation du module goop (les .bin et goop_symbols.json sont versionnés)
+tools/fixes/goop/*.o
+tools/fixes/goop/*.elf
+tools/fixes/goop/*.ld

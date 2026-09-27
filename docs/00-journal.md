@@ -1142,3 +1142,69 @@ Préparation : chemins personnels retirés des outils (`DOLPHIN_EXE`,
 (non publié) reformulés ; `work/` exclu en entier (DOL du jeu, carte, journaux
 de mesure) ; README principal réécrit (fonctionnement, installation, limites) ;
 `requirements.txt`.
+
+## 2026-09-27 — Session 8, suite : la goop en escalier
+
+**Cartographie** (agent, vérifiée au DOL, outil `tools/goop_inspect.py`) :
+display list du matériau **reconstruite à chaque dessin** depuis les blocs J3D
+(paquets non verrouillés, btk présent) → modifier les blocs agit à l'image
+suivante. Matériau (9 matériaux de Bianco, identiques) : étage 0 alpha = masque
+(+ liseré clair si masque < 160), étage 1 alpha = (a+0,5)×0,5, test d'alpha
+≥ 128, opaque. Texel = **32 unités** (zone de 8192 sur 256).
+
+**Bord fondu en direct** (`tools/goop_soft.py`, K = 4 puis 2) : mieux, mais
+les marches restent — elles ont la taille d'un texel. Le pack de textures de
+l'auteur remplace les masques (`pollution_maps`, 8192², BC7) mais **pas** ceux
+de cette partie : empreintes XXH64 recalculées, absentes du pack (formule
+validée sur la texture CMPR de la goop, trouvée). Simulation sur le masque réel
+(binaire 0/255 à cet endroit) : le bilinéaire reproduit les marches vues en
+jeu ; un filtre tente 3×3 les rend continues (`work/goop-lissage-simulation.png`).
+
+**Module `goop`** (`tools/fixes/goop/goop.c`, compilé par le clang PowerPC de
+BSE, `tools/fixes/goop.py`) : copie d'affichage lissée par couche, allouée
+dans le tas du niveau (garde de 512 Ko, sinon rien) ; J3DTexture rebranché sur
+une copie des ResTIMG dont l'entrée « masque » pointe vers la copie — le
+gameplay (unk54, unk58, PollutionCount) n'est jamais touché. Mise à jour :
+zones des tampons (`pushTask`), 4 lignes de fond par passage, bit de poids
+faible du texel (0,0) basculé pour que Dolphin voie le changement. Bord fondu
+K = 4 appliqué par le module. Interrupteurs en RAM (`tools/goop_ctl.py`).
+Sites : 0x801A0EB8, 0x801A12C8, 0x8019ABAC. Code en 4 zones libres
+(0x80001AE0, 0x80001F20, 0x800025F0, 0x80002A40), état en 0x80002F80.
+Profil **1349 lignes**, installé. Repli : `work/GMSE01.avant-goop.ini`.
+**Rien n'est encore testé en jeu.**
+
+### Goop lissée : validée par l'auteur (« c'est legit parfait ») et mesurée
+
+Relevé (`tools/goop_ctl.py`) : 5 couches préparées, 0 échec, les 5 J3DTexture
+rebranchés sur la copie ; tas du niveau : **3981 Ko libres** pour 64 Ko
+demandés (garde de 512 Ko largement tenue). Cadence : **119,7 champs VI/s,
+120,0 images/s** avec le profil de 1349 lignes. ~820 mises à jour de lignes
+par seconde (fond + zones de tampons).
+
+À savoir : dans les niveaux où le pack de textures de l'auteur remplaçait les
+masques d'origine (`pollution_maps`), l'affichage lit désormais la copie
+lissée, dont l'empreinte diffère : le remplacement du pack ne s'y applique
+plus. Non vérifié niveau par niveau.
+
+### Goop : nettoyage affiché avec plusieurs secondes de retard, selon l'endroit
+
+Signalement : la goop arrosée met plusieurs secondes à disparaître à l'écran
+(le gameplay, lui, est à jour : pas d'animation de marche sur goop), et pas
+partout. `tools/goop_probe.py` (nouveau) : copie en RAM **identique** à
+tente(masque) (écart 0) — le retard est dans Dolphin. Sur la couche 1, un
+tampon est poussé **à chaque image** même sans arrosage (zone x162–205 sur
+toute la hauteur, `dframes` bloqué à 3) : deux mises à jour par image, donc
+deux basculements du bit du texel (0,0), qui restait figé (`D00 = 1`). Dolphin
+ne rechargeait la texture que si le nettoyage touchait un mot échantillonné.
+
+Correctif : marqueur écrit **une fois par passage**, compteur modulo 3 dans les
+2 bits bas du texel (0,0) ; fenêtre des zones marquées portée à 8 passages.
+`set_soft` réécrit en accès 32 bits (non alignés, pris en charge par le 750)
+pour tenir dans la caverne. Profil réinstallé. **À retester.**
+
+### Goop : validée par l'auteur (« c'est parfait, tout est parfait »)
+
+Nettoyage affiché sans retard après le correctif du marqueur. Profil 1309
+lignes. `goop.py` conserve les adresses des fonctions liées dans
+`goop_symbols.json` : le profil se reconstruit sans compilateur, **identique
+octet pour octet** (vérifié par `diff` contre le profil validé).

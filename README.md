@@ -5,13 +5,19 @@ jeu d'origine.** Pas un speedhack, pas d'interpolation : le jeu simule toujours 
 ses 120 Hz d'origine, il affiche simplement chaque pas de simulation au lieu d'un
 sur quatre.
 
+En prime : **la goop aux bords lisses**. Les bords en escalier de la pollution,
+très visibles en haute résolution, sont remplacés par des contours arrondis et
+un bord adouci, sans toucher au gameplay.
+
 > **English summary.** A Dolphin game-settings profile (`GMSE01.ini`) that runs
 > Super Mario Sunshine (NTSC-U) at ~120 FPS with correct game speed. The engine
 > already simulates at a fixed 120 Hz and renders every 4th step; the profile
 > overclocks the emulated VI 2× and makes the game render every step. It then
 > fixes the systems that were counting in *rendered frames* instead of
 > *simulation steps* (particles, screen wipes, audio fades, birds, bosses…),
-> all as `[OnFrame]` patches — no ISO modification. Copy `deliver/GMSE01.ini` to
+> all as `[OnFrame]` patches — no ISO modification. It also smooths the
+> staircase edges of the goop (display-only filtered copy of the pollution
+> mask, compiled C code injected the same way). Copy `deliver/GMSE01.ini` to
 > `%APPDATA%\Dolphin Emulator\GameSettings\` and boot the game. Docs are in
 > French.
 
@@ -128,9 +134,35 @@ la plupart des routines.
 | `birds.py` | oiseaux 4× trop lents en vol |
 | `eel.py` | anguille géante (baie Noki) : toutes ses animations 4× trop lentes |
 | `bosses.py` | Mario Ombre, sous-marin de Bowser Jr, socles de la baignoire, Chenille géante, tête de Petey, calmar, flamme de Mecha-Bowser, Bullet Bills, grande roue et montagnes russes de Pinna Park |
+| `goop.py` (+ `goop/goop.c`) | **goop aux bords lisses** : voir ci-dessous |
 
 Le détail de chaque correctif (adresses, instruction d'origine, preuve,
 mesure) est en tête de son module et dans [`docs/00-journal.md`](docs/00-journal.md).
+
+### La goop aux bords lisses
+
+Le contour de la goop est l'isoligne 0,5 d'un masque I8 de 128×128 à 256×256
+texels étiré sur toute une zone : un texel mesure 32 unités de jeu, et un
+masque binaire filtré en bilinéaire donne des marches de la taille d'un texel.
+Aucun réglage de Dolphin n'y change rien (filtrage forcé, MSAA, SSAA).
+
+Contrainte : **ce masque est aussi celui du gameplay** (glissade, nettoyage,
+comptage), et le jeu écrit directement dedans quand on arrose. Il n'est donc
+jamais modifié. À la place, `goop.c` :
+
+1. au chargement de chaque couche, alloue dans la mémoire du niveau une
+   **copie d'affichage** de même taille (16 à 64 Ko, garde de 512 Ko libres,
+   sinon rien ne change) et branche les matériaux dessus — le gameplay garde
+   ses propres pointeurs vers le masque d'origine ;
+2. remplit la copie avec un **filtre tente 3×3** du masque : contours arrondis
+   et continus, sans décalage ;
+3. la tient à jour : zones de chaque tampon de nettoyage aussitôt, et un
+   balayage de fond de quelques lignes par image pour tout le reste ;
+4. adoucit le bord (rampe d'opacité autour du seuil, mélange activé).
+
+Le code est écrit en C, compilé pour le processeur de la GameCube avec le
+clang PowerPC de BetterSunshineEngine, et injecté par `[OnFrame]` comme le
+reste. Mesuré à Bianco : 5 couches, 120 images/s, 3,9 Mo encore libres.
 
 ### Pourquoi `[OnFrame]` et pas `[Gecko]`
 
@@ -164,6 +196,9 @@ faisait chuter l'émulation à 8 images/s pendant les transitions en cercle.
   Eclipse : ils ont leur propre réglage de cadence et modifient les mêmes endroits
   du code.
 - **Incompatible avec tout code Gecko ou Action Replay** actif pour GMSE01.
+- **Packs de textures** remplaçant les masques de goop (dossier
+  `pollution_maps` de certains packs) : la goop affiche désormais la copie
+  lissée, ces remplacements ne s'appliquent plus.
 
 ---
 
@@ -174,6 +209,17 @@ d'un Dolphin en cours d'exécution par `ReadProcessMemory`.
 
 ```sh
 pip install -r requirements.txt
+```
+
+Le module de la goop est du C (`tools/fixes/goop/goop.c`). Les binaires compilés
+sont versionnés : le profil se reconstruit **sans compilateur**. Pour modifier
+le C, il faut le clang PowerPC livré avec
+[BetterSunshineEngine](https://github.com/DotKuribo/BetterSunshineEngine)
+(dossier `compiler/`) :
+
+```sh
+set PPC_CLANG_DIR=C:\chemin\vers\BetterSunshineEngine\compiler
+python tools/fixes/goop.py        # compile, lie, vérifie bornes et sites
 ```
 
 Les fichiers du jeu ne sont **pas** dans le dépôt. À placer dans `work/`, qui est
@@ -190,7 +236,7 @@ Ensuite :
 ```sh
 python tools/build_profile.py                     # assemble et contrôle, sans écrire
 python tools/build_profile.py --write --inconditionnel \
-  --modules fades,soundsets,widescreen,sound,petey,doppler,hx,birds,eel,bosses
+  --modules fades,soundsets,widescreen,sound,petey,doppler,hx,birds,eel,bosses,goop
 python tools/disasm.py work/dol/GMSE01.dol work/maps/us.map <symbole|adresse> [n]
 python tools/xref.py   work/dol/GMSE01.dol work/maps/us.map <adresse>
 ```
@@ -203,6 +249,10 @@ python tools/xref.py   work/dol/GMSE01.dol work/maps/us.map <adresse>
 
 Outils de mesure en jeu (`tools/watch_*.py`, `validate_120.py`) : cadence,
 transitions, fondus audio, sons, oiseaux, état de Mario image par image.
+Goop : `goop_inspect.py` (matériaux J3D décodés commande GX par commande GX),
+`goop_ctl.py` (état du module, interrupteurs lissage / bord fondu en direct),
+`goop_probe.py` (la copie suit-elle le masque ?), `goop_soft.py` (prototype du
+bord fondu, appliqué en direct).
 
 Documentation :
 

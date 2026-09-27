@@ -1,0 +1,9 @@
+{
+ "goop_push_tramp": "0x80001AE0",
+ "live": "0x80001B44",
+ "goop_init": "0x80001F20",
+ "goop_mark": "0x8000226C",
+ "set_soft": "0x800025F0",
+ "goop_perform": "0x80002724",
+ "smooth_rows": "0x80002A40"
+}
