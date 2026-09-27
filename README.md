@@ -33,7 +33,23 @@ un bord adouci, sans toucher au gameplay.
 - un PC capable d'émuler le jeu à **2× sa vitesse** : l'overclock du VI accélère
   aussi l'horloge du processeur émulé.
 
-**À la main (recommandé pour jouer) :**
+**Avec l'installateur (recommandé) :**
+
+1. Télécharger `Sunshine-Overdrive-Setup-*.exe` dans les
+   [Releases](https://github.com/KoroModding/sunshine-overdrive/releases/latest)
+   et le lancer. Aucun droit administrateur n'est demandé.
+2. Si Windows affiche « Windows a protégé votre ordinateur » (l'installateur
+   n'est pas signé) : *Informations complémentaires → Exécuter quand même*.
+3. L'installateur trouve le dossier de Dolphin tout seul (registre de Dolphin,
+   puis `%APPDATA%`, puis `Documents`). Dolphin portable : choisir le dossier
+   `User` situé à côté de `Dolphin.exe`.
+4. Un `GMSE01.ini` déjà présent est mis de côté et **restauré à la
+   désinstallation** (Paramètres Windows → Applications → Sunshine Overdrive).
+
+Installation silencieuse :
+`Sunshine-Overdrive-Setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /DOLPHINDIR="C:\...\Dolphin Emulator"`.
+
+**À la main :**
 
 1. Copier [`deliver/GMSE01.ini`](deliver/GMSE01.ini) dans le dossier
    utilisateur de Dolphin, sous `GameSettings\` :
@@ -253,6 +269,14 @@ Goop : `goop_inspect.py` (matériaux J3D décodés commande GX par commande GX),
 `goop_ctl.py` (état du module, interrupteurs lissage / bord fondu en direct),
 `goop_probe.py` (la copie suit-elle le masque ?), `goop_soft.py` (prototype du
 bord fondu, appliqué en direct).
+
+L'installateur (`installer/SunshineOverdrive.iss`, Inno Setup 6) est construit
+par GitHub Actions (`.github/workflows/installateur.yml`) à chaque tag `v*` et
+publié en Release. En local :
+
+```sh
+ISCC.exe /DAppVer=1.0.0 installer\SunshineOverdrive.iss     # -> dist\
+```
 
 Documentation :
 

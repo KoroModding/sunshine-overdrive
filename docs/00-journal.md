@@ -1208,3 +1208,24 @@ Nettoyage affiché sans retard après le correctif du marqueur. Profil 1309
 lignes. `goop.py` conserve les adresses des fonctions liées dans
 `goop_symbols.json` : le profil se reconstruit sans compilateur, **identique
 octet pour octet** (vérifié par `diff` contre le profil validé).
+
+## 2026-09-27 — Installateur Windows
+
+`installer/SunshineOverdrive.iss` (Inno Setup 6.7.3) : détection du dossier
+utilisateur de Dolphin (registre `HKCU\Software\Dolphin Emulator\UserConfigPath`,
+puis `%APPDATA%`, puis Documents), page de choix (Dolphin portable), contrôle
+`Config\Dolphin.ini`, sauvegarde d'un `GMSE01.ini` étranger et restauration à
+la désinstallation, sans droits administrateur, français / anglais,
+`/DOLPHINDIR=` pour l'installation silencieuse.
+
+Testé en local (compilateur extrait en mode portable, signature Pyrsys
+vérifiée), dans un faux dossier Dolphin :
+- installation : profil identique à `deliver/GMSE01.ini`, ancien fichier
+  sauvegardé, clé `HKCU\Software\Sunshine Overdrive`, entrée « Applications » ;
+- désinstallation : fichier d'origine restauré à l'identique, clé, entrée et
+  dossier du programme supprimés ;
+- double installation sur Dolphin vierge : pas de fausse sauvegarde ;
+  désinstallation : dossier vide.
+
+Publication : `.github/workflows/installateur.yml` construit le Setup à chaque
+tag `v*` (Inno Setup téléchargé, signature vérifiée) et le publie en Release.

@@ -1,0 +1,58 @@
+name: Installateur Windows
+
+# Construit Sunshine-Overdrive-Setup-<version>.exe avec Inno Setup 6.7.3.
+# - tag v* : publie le Setup.exe dans une Release GitHub ;
+# - lancement manuel : Setup.exe disponible en artefact du workflow.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inno Setup 6.7.3 (portable, signature vérifiée)
+        shell: pwsh
+        run: |
+          $exe = "$env:RUNNER_TEMP\innosetup.exe"
+          Invoke-WebRequest https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe -OutFile $exe
+          $sig = Get-AuthenticodeSignature $exe
+          if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'Pyrsys') {
+            throw "Signature d'Inno Setup invalide : $($sig.Status) $($sig.SignerCertificate.Subject)"
+          }
+          Start-Process $exe -Wait -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/CURRENTUSER','/PORTABLE=1','/NOICONS',"/DIR=$env:RUNNER_TEMP\inno"
+          if (-not (Test-Path "$env:RUNNER_TEMP\inno\ISCC.exe")) { throw "ISCC.exe introuvable" }
+
+      - name: Version
+        id: ver
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') { $v = $env:GITHUB_REF_NAME.Substring(1) }
+          else { $v = "0.0.0-dev-$($env:GITHUB_SHA.Substring(0,7))" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Compilation
+        shell: pwsh
+        run: '& "$env:RUNNER_TEMP\inno\ISCC.exe" "/DAppVer=${{ steps.ver.outputs.version }}" installer\SunshineOverdrive.iss'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Sunshine-Overdrive-Setup-${{ steps.ver.outputs.version }}
+          path: dist/*.exe
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME (Get-ChildItem dist\*.exe).FullName `
+            --title "Sunshine Overdrive ${{ steps.ver.outputs.version }}" `
+            --notes-file installer\NOTES.md
