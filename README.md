@@ -156,7 +156,7 @@ factor `M = 2 × literal 0x804167B8` (1 at 30 FPS, 4 at 120) at run time.
 | `goop.py` (+ `goop/goop.c`) | **smooth goop edges**: see below |
 
 Details for each fix (addresses, original instruction, proof, measurements) are
-in the header of its module (in French) and in [`docs/00-journal.md`](docs/00-journal.md).
+in the header of its module and in [`docs/00-journal.md`](docs/00-journal.md).
 
 ### Smooth goop edges
 
