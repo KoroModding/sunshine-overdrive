@@ -34,7 +34,7 @@ without touching gameplay.
    (Windows Settings → Apps → Sunshine Overdrive).
 
 Silent install:
-`Sunshine-Overdrive-Setup-1.0.0.exe /VERYSILENT /SUPPRESSMSGBOXES /DOLPHINDIR="C:\...\Dolphin Emulator"`.
+`Sunshine-Overdrive-Setup-1.1.0.exe /VERYSILENT /SUPPRESSMSGBOXES /DOLPHINDIR="C:\...\Dolphin Emulator"`.
 
 **Manually:**
 
@@ -134,6 +134,7 @@ factor `M = 2 × literal 0x804167B8` (1 at 30 FPS, 4 at 120) at run time.
 | `hx.py` | **screen wipes** (circle, level-entry fades, Game Over…) 4× too fast |
 | `petey.py` | Petey Piranha vomiting 4× too fast |
 | `birds.py` | birds flying 4× too slowly |
+| `jointcoin.py` | Sand Bird (Gelato Beach) flying 4× too slowly, wings flapping 2.5× too slowly |
 | `eel.py` | giant eel (Noki Bay): all animations 4× too slow |
 | `bosses.py` | Shadow Mario, Bowser Jr.'s submarine, bathtub platforms, Wiggler, Petey's head, Gooper Blooper, Mecha-Bowser's flame, Bullet Bills, Pinna Park Ferris wheel and roller coaster |
 | `goop.py` (+ `goop/goop.c`) | **smooth goop edges**: see below |
@@ -238,7 +239,7 @@ Then:
 ```sh
 python tools/build_profile.py                     # assembles and checks, writes nothing
 python tools/build_profile.py --write --inconditionnel \
-  --modules fades,soundsets,widescreen,sound,petey,doppler,hx,birds,eel,bosses,goop
+  --modules fades,soundsets,widescreen,sound,petey,doppler,hx,birds,eel,bosses,goop,jointcoin
 python tools/disasm.py work/dol/GMSE01.dol work/maps/us.map <symbol|address> [n]
 python tools/xref.py   work/dol/GMSE01.dol work/maps/us.map <address>
 ```
@@ -250,7 +251,7 @@ python tools/xref.py   work/dol/GMSE01.dol work/maps/us.map <address>
 - any write on a Dolphin HLE hook.
 
 In-game measurement tools (`tools/watch_*.py`, `validate_120.py`): frame rate,
-wipes, audio fades, sounds, birds, Mario's state frame by frame. Goop:
+wipes, audio fades, sounds, birds, Sand Bird, Mario's state frame by frame. Goop:
 `goop_inspect.py` (J3D materials decoded GX command by GX command), `goop_ctl.py`
 (module state, live smoothing / soft-edge switches), `goop_probe.py` (does the
 copy follow the mask?), `goop_soft.py` (live soft-edge prototype).
@@ -260,7 +261,7 @@ GitHub Actions (`.github/workflows/installateur.yml`) on every `v*` tag and
 published as a Release. Locally:
 
 ```sh
-ISCC.exe /DAppVer=1.0.0 installer\SunshineOverdrive.iss     # -> dist\
+ISCC.exe /DAppVer=1.1.0 installer\SunshineOverdrive.iss     # -> dist\
 ```
 
 Detailed documentation (in French):

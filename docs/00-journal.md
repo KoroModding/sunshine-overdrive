@@ -1229,3 +1229,31 @@ vérifiée), dans un faux dossier Dolphin :
 
 Publication : `.github/workflows/installateur.yml` construit le Setup à chaque
 tag `v*` (Inno Setup téléchargé, signature vérifiée) et le publie en Release.
+
+## 2026-09-27 — Oiseau de sable (TJointCoin)
+
+Signalement de l'auteur : « l'oiseau de sable va trop lentement », avec
+réserve (« ce n'est peut-être qu'une impression »). Lecture du DOL :
+`TSandBird` hérite de `TJointCoin` (vtable 0x803CF2B4 : `loadAfter`
+0x801F761C hérité, `control` appelle 0x801F79C4). `TJointCoin::control`, par
+sous-pas, avance le MActor +0x138 et copie la translation de son joint racine
+dans la position. `loadAfter` pose les débits à 0,25 × anmRate
+(0x801F76A8 → +0x74, 0x801F76C4 → +0x138). Le groupe 4 d'`actors.py` qui le
+corrige n'avait jamais été installé.
+
+`tools/watch_sandbird.py` (nouveau) : débit et trame du frame ctrl 0 des deux
+MActor, trames d'anim/s, vitesse de vol. Gelato, 5 fenêtres de 2 s, 120 images/s :
+
+| | avant (profil 1309) | après (`jointcoin`) | cible, calculée à 30 FPS |
+|---|---|---|---|
+| débit +0x138 / +0x74 | 0,125 / 0,125 | 0,5 / 0,3125 | 0,5 / 0,5 |
+| trajectoire, trames/s | 15,0 | 59,8–60,1 | 60 |
+| ailes, trames/s | 30,0 | 74,7–75,1 | 75 |
+| vol | 88 u/s | 351–353 u/s | ~350 u/s |
+| tour de 9000 trames | ~600 s | ~150 s | 150 s |
+
+Module `tools/fixes/jointcoin.py` : les deux sites seuls (→ JCCHAR, → CONST2),
+routines identiques à `actors.py`. Profil 1324 mots, repli
+`work/GMSE01.avant-jointcoin.ini`. Colonne 30 FPS **calculée**, non mesurée.
+Autres `TJointCoin` du jeu (aucun dans ce niveau) : **non vérifiés**.
+Publié en v1.1.0 à la demande de l'auteur.
