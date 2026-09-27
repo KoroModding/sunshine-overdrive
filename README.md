@@ -34,7 +34,7 @@ without touching gameplay.
    (Windows Settings → Apps → Sunshine Overdrive).
 
 Silent install:
-`Sunshine-Overdrive-Setup-1.1.0.exe /VERYSILENT /SUPPRESSMSGBOXES /DOLPHINDIR="C:\...\Dolphin Emulator"`.
+`Sunshine-Overdrive-Setup-1.2.0.exe /VERYSILENT /SUPPRESSMSGBOXES /DOLPHINDIR="C:\...\Dolphin Emulator"`.
 
 **Manually:**
 
@@ -262,7 +262,7 @@ GitHub Actions (`.github/workflows/installateur.yml`) on every `v*` tag and
 published as a Release. Locally:
 
 ```sh
-ISCC.exe /DAppVer=1.1.0 installer\SunshineOverdrive.iss     # -> dist\
+ISCC.exe /DAppVer=1.2.0 installer\SunshineOverdrive.iss     # -> dist\
 ```
 
 Detailed documentation (in French):
