@@ -1,0 +1,17 @@
+# Fichiers du jeu, journaux de mesure, sauvegardes de profils : jamais versionnés.
+work/
+*.dol
+*.iso
+*.gcm
+*.rvz
+*.ciso
+*.map
+*.log
+
+# Notes de travail privées
+CLAUDE.md
+.claude/
+
+# Python
+__pycache__/
+*.pyc
