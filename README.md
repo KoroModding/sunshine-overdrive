@@ -43,7 +43,7 @@ It also fixes:
    (Windows Settings → Apps → Sunshine Overdrive).
 
 Silent install:
-`Sunshine-Overdrive-Setup-1.3.0.exe /VERYSILENT /SUPPRESSMSGBOXES /DOLPHINDIR="C:\...\Dolphin Emulator"`.
+`Sunshine-Overdrive-Setup-1.4.0.exe /VERYSILENT /SUPPRESSMSGBOXES /DOLPHINDIR="C:\...\Dolphin Emulator"`.
 
 **Manually:**
 
@@ -124,7 +124,12 @@ Not all of Sunshine's code runs at the same rate:
 - `SMSGetAnmFrameRate()` is 2.0 at 30 FPS and 0.5 at 120. That is correct for an
   animation advanced once per frame. But when this factor is used as a speed
   multiplier in code that runs **per step**, the object becomes 4× too slow:
-  birds, the giant eel, the Ferris wheel.
+  birds, the giant eel, the Ferris wheel;
+- at 30 FPS, the once-per-frame side (animation, animation sounds, collision
+  boxes placed on a joint) only ran after four simulation steps, so states that
+  lasted less than that were never observed. At 120 FPS they are: a Poink's
+  collision box one frame behind it, or a looping animation seen wrapping just
+  before the actor switches to another one (the Gatekeeper's double cry).
 
 Each fix in the profile addresses a case read back from the game's executable,
 and almost all were measured in game before and after. Most routines read the
@@ -144,6 +149,7 @@ factor `M = 2 × literal 0x804167B8` (1 at 30 FPS, 4 at 120) at run time.
 | `petey.py` | Petey Piranha vomiting 4× too fast |
 | `birds.py` | birds flying 4× too slowly |
 | `jointcoin.py` | Sand Bird (Gelato Beach) flying 4× too slowly, wings flapping 2.5× too slowly |
+| `loopsnd.py` | animation sounds replayed when a looping animation wraps just before the actor switches to another one (the Gatekeeper crying twice on every hit) |
 | `poink.py` | Poinks (Petey Piranha, Bianco Hills) exploding right after being launched: they hit their own collision box, which lags one frame behind them |
 | `eel.py` | giant eel (Noki Bay): all animations 4× too slow |
 | `bosses.py` | Shadow Mario, Bowser Jr.'s submarine, bathtub platforms, Wiggler, Petey's head, Gooper Blooper, Mecha-Bowser's flame, Bullet Bills, Pinna Park Ferris wheel and roller coaster |
@@ -256,7 +262,7 @@ Then:
 ```sh
 python tools/build_profile.py                     # assembles and checks, writes nothing
 python tools/build_profile.py --write --inconditionnel \
-  --modules fades,soundsets,widescreen,sound,petey,doppler,hx,birds,eel,bosses,goop,jointcoin,poink
+  --modules fades,soundsets,widescreen,sound,petey,doppler,hx,birds,eel,bosses,goop,jointcoin,poink,loopsnd
 python tools/disasm.py work/dol/GMSE01.dol work/maps/us.map <symbol|address> [n]
 python tools/xref.py   work/dol/GMSE01.dol work/maps/us.map <address>
 ```
@@ -278,7 +284,7 @@ GitHub Actions (`.github/workflows/installateur.yml`) on every `v*` tag and
 published as a Release. Locally:
 
 ```sh
-ISCC.exe /DAppVer=1.3.0 installer\SunshineOverdrive.iss     # -> dist\
+ISCC.exe /DAppVer=1.4.0 installer\SunshineOverdrive.iss     # -> dist\
 ```
 
 Detailed documentation (in French):

@@ -60,7 +60,7 @@ BASE = [
     (0x802FCB24, 0x60000000),   # waitForRetrace : bl VIWaitForRetrace -> nop
     (0x801EC29C, 0xC002D564),   # TModelGate::loadAfter : +0xD8 <- 0.005f (0x80414104)
 ]
-MODULES = ["hx", "fader", "menus", "actors", "contexts", "sound", "fades", "soundsets", "widescreen", "doppler", "petey", "birds", "eel", "bosses", "goop", "jointcoin", "poink"]
+MODULES = ["hx", "fader", "menus", "actors", "contexts", "sound", "fades", "soundsets", "widescreen", "doppler", "petey", "birds", "eel", "bosses", "goop", "jointcoin", "poink", "loopsnd"]
 CAVES = (0x80001800, 0x80003000)
 
 
@@ -71,6 +71,15 @@ def collect(modules: list[str] = MODULES) -> list[tuple[str, int, int]]:
     out += [("build_caves", a, v) for a, v in build_caves.build()[0]]
     for name in modules:
         out += [(name, a, v) for a, v in importlib.import_module(name).build()]
+    return out
+
+
+def declared_targets(modules: list[str] = MODULES) -> set[int]:
+    """Cibles de branchement internes à une fonction du jeu, déclarées
+    explicitement par un module (attribut TARGETS), relues à son listing."""
+    out: set[int] = set()
+    for name in modules:
+        out |= set(getattr(importlib.import_module(name), "TARGETS", ()))
     return out
 
 
@@ -85,7 +94,7 @@ def symbol_starts() -> set[int]:
     return starts
 
 
-def check(entries: list[tuple[str, int, int]]) -> list[str]:
+def check(entries: list[tuple[str, int, int]], extra: set[int] = frozenset()) -> list[str]:
     errors = []
     seen: dict[int, tuple[str, int]] = {}
     for mod, a, v in entries:
@@ -111,7 +120,7 @@ def check(entries: list[tuple[str, int, int]]) -> list[str]:
         except Exception:
             pass                                    # données hors fichier (BSS)
 
-    starts = symbol_starts()
+    starts = symbol_starts() | set(extra)
     returns = {a + 4 for a in sites}
     cs = capstone.Cs(capstone.CS_ARCH_PPC, capstone.CS_MODE_32 + capstone.CS_MODE_BIG_ENDIAN)
     for a, (mod, v) in seen.items():
@@ -162,7 +171,7 @@ def main(argv: list[str]) -> int:
         arg = argv[argv.index("--modules") + 1]
         modules = [] if arg == "none" else arg.split(",")
     entries = collect(modules)
-    errors = check(entries)
+    errors = check(entries, declared_targets(modules))
     per_mod: dict[str, int] = {}
     for mod, _, _ in entries:
         per_mod[mod] = per_mod.get(mod, 0) + 1

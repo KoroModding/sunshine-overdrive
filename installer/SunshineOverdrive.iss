@@ -12,10 +12,10 @@
 ;   - /DOLPHINDIR="chemin" impose le dossier (installation silencieuse :
 ;     /VERYSILENT /SUPPRESSMSGBOXES /DOLPHINDIR="...").
 ;
-; Construction : ISCC.exe /DAppVer=1.3.0 installer\SunshineOverdrive.iss
+; Construction : ISCC.exe /DAppVer=1.4.0 installer\SunshineOverdrive.iss
 
 #ifndef AppVer
-  #define AppVer "1.3.0"
+  #define AppVer "1.4.0"
 #endif
 
 [Setup]

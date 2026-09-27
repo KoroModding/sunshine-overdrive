@@ -1340,3 +1340,37 @@ Place : `patch_dl` en zone E 0x80001CFC–0x80001D80 (132 o, pleine) ;
 trampoline en zone B. Profil **1484 mots**, repli
 `work/GMSE01.avant-goop2.ini`. Validé par l'auteur : « tout est lisse, ça
 s'étale de façon fluide ». Publié en v1.3.0.
+
+## 2026-09-28 — Gatekeeper : double cri à chaque coup (retour communauté)
+
+Signalement (Discord, co-lead musiques d'Eclipse) : à 120 FPS le Gatekeeper
+(Proto Piranha, `TBiancoGateKeeper`) crie deux fois à chaque coup d'eau.
+
+**Éliminations mesurées** (profils de test, un changement à la fois) :
+jeu d'origine 30 FPS : pas de double cri ; 120 FPS sans `sound` : double cri ;
+sans `soundsets` : double cri ; son de fonte des blobs `0x2802`
+(`TNameKuri::setMeltAnm`, appel coupé par `nop`) : double cri.
+**Fausses pistes corrigées en route** : `0x2832` (sons des `TAmenbo` /
+`THamuKuri`, pas du Gatekeeper) et `0x2802` (fonte des blobs) — identifiés par
+`tools/who_plays.py`, qui remonte d'une instance JAISound à l'objet de sons
+d'animation et à l'acteur qui le porte.
+
+**Cause** (`tools/watch_gatekeeper.py` + trace échantillonnée plusieurs fois
+par image) : le cri `0x2891` est l'événement 0 (trame 0, sans restriction de
+boucle) de la table de l'animation de dégât (n° 3, 120 trames, en boucle).
+Image 72048 : trame 119,5 → 0,0, drapeau « rebouclée ». Image 72049 : le nerf
+de dégât voit la fin et passe la main ; le système de sons voit le rebouclage
+(boucles 0 → 1) et rejoue le cri. Image 72050 : le nerf suivant lance
+l'animation 17. Il faut deux sous-pas entre la fin d'une animation et le
+changement ; à 30 FPS, le son n'est évalué qu'un sous-pas sur quatre et ne
+voit jamais ce rebouclage. Motif générique.
+
+**Correctif** `tools/fixes/loopsnd.py` : détour à l'entrée de la boucle de
+lecture de `JAIAnimeSound::setAnimSoundActor` (0x8030038C) ; juste après un
+rebouclage (trame préc. == trame, boucles ≠ 0, index == départ), lecture
+reportée d'une évaluation (8 ms) — abandonnée si l'animation change entre-
+temps. Actif seulement au-dessus de 30 FPS. Grotte 0x80001DA4–0x80001DE7.
+`build_profile.py` accepte désormais des cibles de branchement internes
+déclarées par un module (`TARGETS`). Profil **1502 mots**, repli
+`work/GMSE01.avant-loopsnd.ini`. Validé par l'auteur à l'oreille : « plus
+qu'un seul cri », autres sons normaux.
