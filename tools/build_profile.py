@@ -60,7 +60,7 @@ BASE = [
     (0x802FCB24, 0x60000000),   # waitForRetrace: bl VIWaitForRetrace -> nop
     (0x801EC29C, 0xC002D564),   # TModelGate::loadAfter: +0xD8 <- 0.005f (0x80414104)
 ]
-MODULES = ["hx", "fader", "menus", "actors", "contexts", "sound", "fades", "soundsets", "widescreen", "doppler", "petey", "birds", "eel", "bosses", "goop", "jointcoin", "poink", "loopsnd"]
+MODULES = ["hx", "fader", "menus", "actors", "contexts", "sound", "fades", "soundsets", "widescreen", "doppler", "petey", "birds", "eel", "bosses", "goop", "jointcoin", "poink", "loopsnd", "boids"]
 CAVES = (0x80001800, 0x80003000)
 
 

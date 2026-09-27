@@ -1374,3 +1374,35 @@ meantime. Active only above 30 FPS. Code cave 0x80001DA4–0x80001DE7.
 declared by a module (`TARGETS`). Profile **1502 words**, fallback
 `work/GMSE01.avant-loopsnd.ini`. Validated by the author by ear: "only
 one cry now", other sounds normal.
+
+## 2026-09-28 — Fish schools 4× too fast (Gelato, red coins in the coral reef)
+
+Report: in Gelato Beach episode 6 ("Red Coins in the Coral Reef"), the fish
+are too fast to catch and some go through walls.
+
+The fish are boids (`TFishoid`, each embedding a `TBoidLeader`). Group 1 of
+`tools/fixes/actors.py` already described the defect but had never been
+installed: `TBoidLeader::perform` (0x80005D14) runs the leader's move and
+`calcBoids` only under flag 0x2, once per rendered frame, with a
+frame-rate-independent step.
+
+`tools/watch_boids.py` (new), leader position at +0x74 (read from the add at
+0x80005E2C..0x80005E58):
+
+| | before (1502-word profile) | after (`boids`) | 30 FPS, calculated |
+|---|---|---|---|
+| step | 3.57–3.60 u per frame at 116–124 frames/s | 0.90 u per frame | 3.6 u per frame |
+| speed | 414–445 u/s | 107.5–107.9 u/s | 108 u/s |
+
+Module `tools/fixes/boids.py`: the two group-1 sites alone (0x800066E4 →
+BOID, sqrt(dot)/M; 0x80005DFC → LEADER, 0.9/M), routines identical to
+`actors.py` at their original addresses 0x80002440 / 0x80002460 (verified
+empty). Profile **1516 words**, fallback `work/GMSE01.avant-boids.ini`.
+Validated by the author: "much more manageable", Shine completed.
+
+Going through walls remains: read in the DOL, the boid code (`calcBoids`,
+`calcForces`, `calcGoalForce`, `TBoidLeader::perform`) makes no map
+collision call at all — schools follow a graph and flocking forces, so they
+cross walls in the original game too, just 4× less visibly. Not checked in
+game at 30 FPS. Boid orientation smoothing still runs per frame (faster
+turning, visual only): NOT VERIFIED.

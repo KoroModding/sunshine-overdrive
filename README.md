@@ -43,7 +43,7 @@ It also fixes:
    (Windows Settings → Apps → Sunshine Overdrive).
 
 Silent install:
-`Sunshine-Overdrive-Setup-1.4.0.exe /VERYSILENT /SUPPRESSMSGBOXES /DOLPHINDIR="C:\...\Dolphin Emulator"`.
+`Sunshine-Overdrive-Setup-1.5.0.exe /VERYSILENT /SUPPRESSMSGBOXES /DOLPHINDIR="C:\...\Dolphin Emulator"`.
 
 **Manually:**
 
@@ -147,6 +147,7 @@ factor `M = 2 × literal 0x804167B8` (1 at 30 FPS, 4 at 120) at run time.
 | `widescreen.py` | gamemasterplc's 16:9 code, converted to `[OnFrame]` |
 | `hx.py` | **screen wipes** (circle, level-entry fades, Game Over…) 4× too fast |
 | `petey.py` | Petey Piranha vomiting 4× too fast |
+| `boids.py` | fish schools and other flocks moving 4× too fast (Gelato's red coins in the coral reef) |
 | `birds.py` | birds flying 4× too slowly |
 | `jointcoin.py` | Sand Bird (Gelato Beach) flying 4× too slowly, wings flapping 2.5× too slowly |
 | `loopsnd.py` | animation sounds replayed when a looping animation wraps just before the actor switches to another one (the Gatekeeper crying twice on every hit) |
@@ -261,7 +262,7 @@ Then:
 ```sh
 python tools/build_profile.py                     # assembles and checks, writes nothing
 python tools/build_profile.py --write --inconditionnel \
-  --modules fades,soundsets,widescreen,sound,petey,doppler,hx,birds,eel,bosses,goop,jointcoin,poink,loopsnd
+  --modules fades,soundsets,widescreen,sound,petey,doppler,hx,birds,eel,bosses,goop,jointcoin,poink,loopsnd,boids
 python tools/disasm.py work/dol/GMSE01.dol work/maps/us.map <symbol|address> [n]
 python tools/xref.py   work/dol/GMSE01.dol work/maps/us.map <address>
 ```
@@ -283,7 +284,7 @@ GitHub Actions (`.github/workflows/installateur.yml`) on every `v*` tag and
 published as a Release. Locally:
 
 ```sh
-ISCC.exe /DAppVer=1.4.0 installer\SunshineOverdrive.iss     # -> dist\
+ISCC.exe /DAppVer=1.5.0 installer\SunshineOverdrive.iss     # -> dist\
 ```
 
 Detailed documentation:
