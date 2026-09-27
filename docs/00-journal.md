@@ -1257,3 +1257,42 @@ routines identiques à `actors.py`. Profil 1324 mots, repli
 `work/GMSE01.avant-jointcoin.ini`. Colonne 30 FPS **calculée**, non mesurée.
 Autres `TJointCoin` du jeu (aucun dans ce niveau) : **non vérifiés**.
 Publié en v1.1.0 à la demande de l'auteur.
+
+## 2026-09-27 — Poinks (TPopo) : auto-collision en vol
+
+Signalement de l'auteur : les Poinks (« petits cochons roses » à lancer sur
+Petey, Bianco) « explosent instantanément et ne dépassent pas 2 m ». Classe
+`TPopo` (nom japonais Popo), vtable 0x803BA558 ; boîte de collision secondaire
+`TPopoCollision` en +0x23C (propriétaire en +0x68).
+
+`tools/watch_popo.py` (nouveau) : nerfs, remplissage +0x198, gâchette R,
+vitesse de lancement, durée et distance de vol, touches du Poink et de sa
+boîte, écart boîte ↔ Poink. Mesuré à 120 images/s, 1 pas par image :
+
+- 20 lancers : 19 explosés 7 à 10 pas après le lancement (< 0,1 s, 380–880 u),
+  1 au pas 2. Minuterie de vol (+0x19C, limite prm+0x3DC = 1000) jamais
+  atteinte ; drapeau « en l'air » encore levé : ni atterrissage ni minuterie.
+- 8 lancers suivis : contact du Poink avec **sa propre boîte** au premier
+  `checkActorsHit` (tous les 4 sous-pas, `unk58`) après la réactivation de la
+  collision au pas 6 (`TNervePopoFly`) ; boîte à 150–210 u derrière le Poink.
+
+Cause lue dans le DOL : `TPopo::calcRootMatrix` place la boîte sur un joint,
+depuis les matrices de l'image précédente, et n'est appelé que dans la passe
+d'animation (`TLiveActor::perform`, drapeau 0x2) : retard d'une image. À 120
+FPS, une image = 1 sous-pas, la boîte colle au Poink ; à 30 FPS, 4 sous-pas de
+plus, ≥ 500 u (**calculé**), pas de contact.
+
+Deux chemins vers l'explosion, tous deux par `TPopo::isCollidMove`
+(0x800E6C94) : Poink → boîte (`isCollidMove(Poink, boîte)`) et boîte → Poink
+(`TPopo::bind` → `TSmallEnemy::behaveToHitOthers(Poink, Poink)` → vtable
++0x17C = `isCollidMove(Poink, Poink)`). Première version (boîte seule) :
+installée, mesurée, **sans effet** (9 lancers sur 9 explosés au pas 7–10).
+
+Module `tools/fixes/poink.py` : détour au prologue d'`isCollidMove`, renvoie 0
+si l'autre est le Poink ou sa boîte. Routine en 0x80001D80 (zone nominale de
+soundsets, inutilisée au-delà de 0x80001CF8, vérifiée nulle). Profil 1334
+mots, repli `work/GMSE01.avant-poink.ini`.
+
+Après : le Poink vole 54 pas (0,45 s), 4630 u, et explose sur `TBPNavel`
+(nombril de Petey), qui se réveille. Validé par l'auteur (« ils volent
+normalement »). Un seul lancer mesuré après correctif.

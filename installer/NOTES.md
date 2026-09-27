@@ -1,19 +1,16 @@
-**Super Mario Sunshine à 120 images/s sur Dolphin, vitesse de jeu correcte — et la goop aux bords lisses.**
+**Super Mario Sunshine at 120 FPS on Dolphin, at the correct game speed — with smooth goop edges.**
 
-### Installer
-1. Téléchargez `Sunshine-Overdrive-Setup-*.exe` ci-dessous et lancez-le.
-2. Windows peut afficher « Windows a protégé votre ordinateur » (installateur non signé) : **Informations complémentaires → Exécuter quand même**.
-3. L'installateur détecte Dolphin ; pour un Dolphin portable, choisissez le dossier `User` à côté de `Dolphin.exe`.
-4. Démarrez Super Mario Sunshine **NTSC-U (GMSE01)** dans Dolphin.
+### Install
+1. Download `Sunshine-Overdrive-Setup-*.exe` below and run it. No administrator rights needed.
+2. Windows may show "Windows protected your PC" (the installer is not signed): **More info → Run anyway**.
+3. The installer finds Dolphin on its own; for a portable Dolphin, pick the `User` folder next to `Dolphin.exe`.
+4. Start Super Mario Sunshine **NTSC-U (GMSE01)** in Dolphin.
 
-Désinstallation : Paramètres Windows → Applications → Sunshine Overdrive (l'ancien profil éventuel est restauré).
+Uninstall: Windows Settings → Apps → Sunshine Overdrive (any previous profile is restored).
 
-### Il faut
-- Dolphin récent, votre copie de Super Mario Sunshine NTSC-U (GMSE01) ;
-- un PC capable d'émuler le jeu à 2× sa vitesse ;
-- aucun code Gecko / Action Replay actif pour ce jeu ; pour l'écran large : *Graphiques → Rapport d'aspect → Forcer 16:9*.
+### Requirements
+- a recent Dolphin and your own copy of Super Mario Sunshine NTSC-U (GMSE01);
+- a PC able to emulate the game at 2× speed;
+- no active Gecko / Action Replay code for this game; for widescreen: *Graphics → Aspect Ratio → Force 16:9*.
 
-Détails, fonctionnement et limites : [README](https://github.com/KoroModding/sunshine-overdrive#readme).
-
----
-**English:** download and run the Setup, click *More info → Run anyway* if SmartScreen warns, start Super Mario Sunshine (NTSC-U) in Dolphin. Uninstall from Windows Settings → Apps.
+Details, how it works and known limitations: [README](https://github.com/KoroModding/sunshine-overdrive#readme).

@@ -135,6 +135,7 @@ factor `M = 2 × literal 0x804167B8` (1 at 30 FPS, 4 at 120) at run time.
 | `petey.py` | Petey Piranha vomiting 4× too fast |
 | `birds.py` | birds flying 4× too slowly |
 | `jointcoin.py` | Sand Bird (Gelato Beach) flying 4× too slowly, wings flapping 2.5× too slowly |
+| `poink.py` | Poinks (Petey Piranha, Bianco Hills) exploding right after being launched: they hit their own collision box, which lags one frame behind them |
 | `eel.py` | giant eel (Noki Bay): all animations 4× too slow |
 | `bosses.py` | Shadow Mario, Bowser Jr.'s submarine, bathtub platforms, Wiggler, Petey's head, Gooper Blooper, Mecha-Bowser's flame, Bullet Bills, Pinna Park Ferris wheel and roller coaster |
 | `goop.py` (+ `goop/goop.c`) | **smooth goop edges**: see below |
@@ -239,7 +240,7 @@ Then:
 ```sh
 python tools/build_profile.py                     # assembles and checks, writes nothing
 python tools/build_profile.py --write --inconditionnel \
-  --modules fades,soundsets,widescreen,sound,petey,doppler,hx,birds,eel,bosses,goop,jointcoin
+  --modules fades,soundsets,widescreen,sound,petey,doppler,hx,birds,eel,bosses,goop,jointcoin,poink
 python tools/disasm.py work/dol/GMSE01.dol work/maps/us.map <symbol|address> [n]
 python tools/xref.py   work/dol/GMSE01.dol work/maps/us.map <address>
 ```
